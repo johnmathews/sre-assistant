@@ -67,8 +67,7 @@ class GetAlertsInput(BaseModel):
     state: str | None = Field(
         default=None,
         description=(
-            "Filter by alert state. Options: 'active', 'suppressed', 'unprocessed'. "
-            "Omit to return all alerts."
+            "Filter by alert state. Options: 'active', 'suppressed', 'unprocessed'. Omit to return all alerts."
         ),
     )
 
@@ -92,7 +91,8 @@ def _grafana_headers() -> dict[str, str]:
 
 
 async def _grafana_get(
-    path: str, params: dict[str, str] | None = None,
+    path: str,
+    params: dict[str, str] | None = None,
 ) -> list[GrafanaAlertGroup] | list[GrafanaAlertRule]:
     """Make an authenticated GET request to the Grafana API."""
     url = f"{get_settings().grafana_url}{path}"
@@ -146,7 +146,8 @@ def _format_alerts(groups: list[GrafanaAlertGroup], state_filter: str | None) ->
 
         # Show relevant labels (skip internal ones)
         extra_labels = {
-            k: v for k, v in labels.items()
+            k: v
+            for k, v in labels.items()
             if k not in ("alertname", "severity", "grafana_folder", "__alert_rule_uid__")
         }
         if extra_labels:
@@ -216,22 +217,17 @@ async def grafana_get_alerts(state: str | None = None) -> str:
     try:
         groups = await _grafana_get("/api/alertmanager/grafana/api/v2/alerts/groups", params)
     except httpx.HTTPStatusError as e:
-        raise ToolException(
-            f"Grafana API error: HTTP {e.response.status_code} - {e.response.text[:500]}"
-        ) from e
+        raise ToolException(f"Grafana API error: HTTP {e.response.status_code} - {e.response.text[:500]}") from e
     except httpx.ConnectError as e:
-        raise ToolException(
-            f"Cannot connect to Grafana at {get_settings().grafana_url}: {e}"
-        ) from e
+        raise ToolException(f"Cannot connect to Grafana at {get_settings().grafana_url}: {e}") from e
     except httpx.TimeoutException as e:
-        raise ToolException(
-            f"Grafana request timed out after {DEFAULT_TIMEOUT_SECONDS}s: {e}"
-        ) from e
+        raise ToolException(f"Grafana request timed out after {DEFAULT_TIMEOUT_SECONDS}s: {e}") from e
 
     return _format_alerts(groups, state)  # type: ignore[arg-type]
 
 
 grafana_get_alerts.description = TOOL_DESCRIPTION_ALERTS
+grafana_get_alerts.handle_tool_error = True
 
 
 @tool("grafana_get_alert_rules", args_schema=GetAlertRulesInput)
@@ -242,19 +238,14 @@ async def grafana_get_alert_rules() -> str:
     try:
         rules = await _grafana_get("/api/v1/provisioning/alert-rules")
     except httpx.HTTPStatusError as e:
-        raise ToolException(
-            f"Grafana API error: HTTP {e.response.status_code} - {e.response.text[:500]}"
-        ) from e
+        raise ToolException(f"Grafana API error: HTTP {e.response.status_code} - {e.response.text[:500]}") from e
     except httpx.ConnectError as e:
-        raise ToolException(
-            f"Cannot connect to Grafana at {get_settings().grafana_url}: {e}"
-        ) from e
+        raise ToolException(f"Cannot connect to Grafana at {get_settings().grafana_url}: {e}") from e
     except httpx.TimeoutException as e:
-        raise ToolException(
-            f"Grafana request timed out after {DEFAULT_TIMEOUT_SECONDS}s: {e}"
-        ) from e
+        raise ToolException(f"Grafana request timed out after {DEFAULT_TIMEOUT_SECONDS}s: {e}") from e
 
     return _format_alert_rules(rules)  # type: ignore[arg-type]
 
 
 grafana_get_alert_rules.description = TOOL_DESCRIPTION_RULES
+grafana_get_alert_rules.handle_tool_error = True

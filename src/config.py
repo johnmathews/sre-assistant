@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     grafana_url: str
     grafana_service_account_token: str
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 @lru_cache(maxsize=1)

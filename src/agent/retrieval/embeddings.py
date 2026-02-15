@@ -108,16 +108,18 @@ def load_runbooks(runbooks_dir: Path | None = None) -> list[Document]:
                         section_heading = line.lstrip("#").strip()
                         break
 
-                documents.append(Document(
-                    page_content=chunk,
-                    metadata={
-                        "source": md_file.name,
-                        "runbook": runbook_name,
-                        "title": title,
-                        "section": section_heading,
-                        "chunk_index": i,
-                    },
-                ))
+                documents.append(
+                    Document(
+                        page_content=chunk,
+                        metadata={
+                            "source": md_file.name,
+                            "runbook": runbook_name,
+                            "title": title,
+                            "section": section_heading,
+                            "chunk_index": i,
+                        },
+                    )
+                )
 
     logger.info("Loaded %d chunks from %d runbook files", len(documents), len(md_files))
     return documents

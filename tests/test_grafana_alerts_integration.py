@@ -67,8 +67,8 @@ class TestGrafanaGetAlerts:
             side_effect=httpx.ConnectError("Connection refused"),
         )
 
-        with pytest.raises(Exception, match="Cannot connect"):
-            await grafana_get_alerts.ainvoke({})
+        result = await grafana_get_alerts.ainvoke({})
+        assert "Cannot connect" in result
 
     @respx.mock
     async def test_auth_failure(self) -> None:
@@ -76,8 +76,8 @@ class TestGrafanaGetAlerts:
             return_value=httpx.Response(401, text="Unauthorized"),
         )
 
-        with pytest.raises(Exception, match="401"):
-            await grafana_get_alerts.ainvoke({})
+        result = await grafana_get_alerts.ainvoke({})
+        assert "401" in result
 
     @respx.mock
     async def test_sends_auth_header(self) -> None:
@@ -129,5 +129,5 @@ class TestGrafanaGetAlertRules:
             side_effect=httpx.ReadTimeout("Read timed out"),
         )
 
-        with pytest.raises(Exception, match="timed out"):
-            await grafana_get_alert_rules.ainvoke({})
+        result = await grafana_get_alert_rules.ainvoke({})
+        assert "timed out" in result

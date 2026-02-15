@@ -9,7 +9,11 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
 from src.agent.tools.grafana_alerts import grafana_get_alert_rules, grafana_get_alerts
-from src.agent.tools.prometheus import prometheus_instant_query, prometheus_range_query
+from src.agent.tools.prometheus import (
+    prometheus_instant_query,
+    prometheus_range_query,
+    prometheus_search_metrics,
+)
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -22,6 +26,7 @@ You have access to live infrastructure tools and a knowledge base of operational
 ## Tool Selection Guide
 
 **For live system state** (metrics, alerts, what's happening right now):
+- `prometheus_search_metrics` — discover available metric names matching a keyword
 - `prometheus_instant_query` — current metric values (CPU, memory, disk, network)
 - `prometheus_range_query` — metric trends over a time range
 - `grafana_get_alerts` — active/firing alerts and their state
@@ -32,6 +37,8 @@ You have access to live infrastructure tools and a knowledge base of operational
 
 ## Guidelines
 
+- When unsure of a metric name, **search first** with `prometheus_search_metrics` to discover \
+available metrics before querying. Do not guess metric names.
 - When investigating an issue, **query metrics first** to understand what's happening, \
 then **search runbooks** for relevant procedures or context.
 - When asked about alerts, fetch live alert data — don't guess from runbooks.
@@ -46,6 +53,7 @@ then **search runbooks** for relevant procedures or context.
 def _get_tools() -> list:  # type: ignore[type-arg]
     """Collect all agent tools, conditionally including runbook search."""
     tools: list = [  # type: ignore[type-arg]
+        prometheus_search_metrics,
         prometheus_instant_query,
         prometheus_range_query,
         grafana_get_alerts,
@@ -99,12 +107,14 @@ def build_agent(
     return agent
 
 
-def invoke_agent(
+async def invoke_agent(
     agent: CompiledStateGraph,  # type: ignore[type-arg]
     message: str,
     session_id: str = "default",
 ) -> str:
     """Send a message to the agent and return the text response.
+
+    Uses ainvoke because the tools are async (httpx-based).
 
     Args:
         agent: The compiled agent from build_agent().
@@ -116,7 +126,7 @@ def invoke_agent(
     """
     config = {"configurable": {"thread_id": session_id}}
 
-    result = agent.invoke(  # pyright: ignore[reportUnknownMemberType]
+    result = await agent.ainvoke(  # pyright: ignore[reportUnknownMemberType]
         {"messages": [HumanMessage(content=message)]},
         config=config,  # type: ignore[arg-type]
     )

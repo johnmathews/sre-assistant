@@ -6,6 +6,7 @@ Usage:
     make chat
 """
 
+import asyncio
 import logging
 import sys
 import uuid
@@ -18,7 +19,7 @@ logging.basicConfig(
 )
 
 
-def main() -> None:
+async def main() -> None:
     """Run the interactive CLI loop."""
     print("SRE Assistant (type 'quit' or Ctrl+C to exit)")
     print("=" * 50)
@@ -47,11 +48,11 @@ def main() -> None:
             break
 
         try:
-            response = invoke_agent(agent, question, session_id=session_id)
+            response = await invoke_agent(agent, question, session_id=session_id)
             print(f"\nAssistant: {response}\n")
         except Exception as e:
             print(f"\nError: {e}\n")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -9,6 +9,8 @@ handling.
 
 ## Table of Contents
 
+- [Getting Started](#getting-started)
+  - [macOS Tahoe / Sequoia: Local Network Access](#macos-tahoe--sequoia-local-network-access)
 - [Motivation \& Context](#motivation--context)
 - [Goals](#goals)
 - [What It Should Achieve](#what-it-should-achieve)
@@ -30,6 +32,49 @@ handling.
 - [Repository Structure (Planned)](#repository-structure-planned)
 - [Non-Goals](#non-goals)
 - [License](#license)
+
+---
+
+## Getting Started
+
+```bash
+# Install dependencies
+make dev
+
+# Copy and fill in your API keys
+cp .env.example .env
+# Edit .env with your OPENAI_API_KEY, PROMETHEUS_URL, GRAFANA_URL, GRAFANA_SERVICE_ACCOUNT_TOKEN
+
+# Build the runbook vector store (required before first use)
+make ingest
+
+# Start the interactive CLI
+make chat
+
+# Or start the FastAPI server
+make serve
+# POST /ask  — send questions to the agent
+# GET /health — check infrastructure component status
+
+# Run the full check suite (lint + typecheck + tests)
+make check
+```
+
+### macOS Tahoe / Sequoia: Local Network Access
+
+On macOS 15+ (Sequoia) and macOS 26+ (Tahoe), Apple restricts local network access for
+processes that aren't children of a recognized terminal app. This affects `make chat` if you
+run it inside **tmux** — the agent's Prometheus/Grafana tool calls will fail with
+`[Errno 65] No route to host` because tmux runs as a daemon under `launchd`, breaking the
+terminal's local network exemption.
+
+**Workaround:** Run `make chat` directly in your terminal (kitty, iTerm, Terminal.app) without
+tmux. Apple-signed binaries (`/usr/bin/curl`, `/usr/bin/python3`) are exempt and always work,
+but Python installed via uv, pyenv, or Homebrew is not Apple-signed and inherits permissions
+from the parent process chain.
+
+This only affects local development on macOS. The agent runs without restrictions when deployed
+in Docker on Linux.
 
 ---
 
@@ -295,9 +340,11 @@ The project is built incrementally, with each phase producing a working, demonst
 2. ~~**Prometheus tool** — `src/agent/tools/prometheus.py`: LangChain tool wrapping Prometheus HTTP API (`/api/v1/query`, `/api/v1/query_range`). Unit and integration tests.~~
 3. ~~**Grafana alerting tool** — `src/agent/tools/grafana_alerts.py`: fetches active alerts and alert rule definitions from Grafana's alerting API (not Alertmanager — Grafana is the actual alerting system in use). Unit and integration tests.~~
 4. ~~**Runbook RAG pipeline** — 13 runbooks in `runbooks/` converted from homelab documentation, embedding pipeline (`src/agent/retrieval/embeddings.py`), retriever tool (`src/agent/retrieval/runbooks.py`), ingest script (`make ingest`). Unit tests for chunking, loading, and input validation.~~
-5. **Agent assembly** — `src/agent/agent.py`: LangChain agent with all three tools. System prompt defining when to use live queries vs. RAG. Conversation memory. Test via REPL.
-6. **FastAPI backend** — `src/api/main.py`: `POST /ask` (question + session ID → response), `GET /health`.
-7. **Basic CLI** — Simple input loop calling the agent directly. Streamlit comes later.
+5. ~~**Agent assembly** — `src/agent/agent.py`: LangChain agent with all three tools. System prompt defining when to use live queries vs. RAG. Conversation memory. Test via REPL.~~
+6. ~~**FastAPI backend** — `src/api/main.py`: `POST /ask` (question + session ID → response), `GET /health`.~~
+7. ~~**Basic CLI** — Simple input loop calling the agent directly. Streamlit comes later.~~
+
+**Phase 1 complete.** All build steps finished — the agent has Prometheus tools, Grafana alerting tools, runbook RAG, a system prompt with conversation memory, a FastAPI backend (`POST /ask`, `GET /health`), and an interactive CLI. 94 tests passing.
 
 ### Phase 2: Synthetic Incident Generator
 

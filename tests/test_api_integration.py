@@ -1,0 +1,168 @@
+"""Integration tests for the FastAPI backend.
+
+Uses TestClient with mocked agent and HTTP calls — no real services needed.
+"""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
+import pytest
+import respx
+from fastapi.testclient import TestClient
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_agent() -> MagicMock:
+    """A fake agent object to stand in for the real compiled graph."""
+    return MagicMock(name="fake_agent")
+
+
+@pytest.fixture
+def client(mock_settings: object, mock_agent: MagicMock) -> TestClient:  # noqa: ARG001 — mock_settings activates patches
+    """Create a TestClient with the agent pre-injected into app state."""
+    with patch("src.api.main.build_agent", return_value=mock_agent):
+        from src.api.main import app
+
+        with TestClient(app) as tc:
+            yield tc  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# POST /ask
+# ---------------------------------------------------------------------------
+
+
+class TestAskEndpoint:
+    """Tests for POST /ask."""
+
+    @pytest.mark.integration
+    def test_successful_question(self, client: TestClient) -> None:
+        with patch(
+            "src.api.main.invoke_agent",
+            new_callable=AsyncMock,
+            return_value="CPU is at 42% on node-3.",
+        ):
+            resp = client.post("/ask", json={"question": "What is CPU on node-3?"})
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["response"] == "CPU is at 42% on node-3."
+        assert "session_id" in body
+
+    @pytest.mark.integration
+    def test_server_generates_session_id(self, client: TestClient) -> None:
+        with patch(
+            "src.api.main.invoke_agent",
+            new_callable=AsyncMock,
+            return_value="ok",
+        ):
+            resp = client.post("/ask", json={"question": "hello"})
+
+        body = resp.json()
+        assert len(body["session_id"]) == 8
+
+    @pytest.mark.integration
+    def test_client_session_id_echoed(self, client: TestClient) -> None:
+        with patch(
+            "src.api.main.invoke_agent",
+            new_callable=AsyncMock,
+            return_value="ok",
+        ):
+            resp = client.post(
+                "/ask",
+                json={"question": "hello", "session_id": "my-sess-1"},
+            )
+
+        assert resp.json()["session_id"] == "my-sess-1"
+
+    @pytest.mark.integration
+    def test_empty_question_returns_422(self, client: TestClient) -> None:
+        resp = client.post("/ask", json={})
+        assert resp.status_code == 422
+
+    @pytest.mark.integration
+    def test_agent_failure_returns_500(self, client: TestClient) -> None:
+        with patch(
+            "src.api.main.invoke_agent",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("LLM exploded"),
+        ):
+            resp = client.post("/ask", json={"question": "boom"})
+
+        assert resp.status_code == 500
+        assert "LLM exploded" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# GET /health
+# ---------------------------------------------------------------------------
+
+
+class TestHealthEndpoint:
+    """Tests for GET /health."""
+
+    @pytest.mark.integration
+    @respx.mock
+    def test_all_healthy(self, client: TestClient, tmp_path: object) -> None:
+        respx.get("http://prometheus.test:9090/-/healthy").mock(
+            return_value=httpx.Response(200, text="Prometheus Server is Healthy.")
+        )
+        respx.get("http://grafana.test:3000/api/health").mock(return_value=httpx.Response(200, json={"database": "ok"}))
+
+        with patch("src.api.main.Path") as mock_path_cls:
+            mock_path_cls.return_value.is_dir.return_value = True
+            resp = client.get("/health")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "healthy"
+        assert len(body["components"]) == 3
+        assert all(c["status"] == "healthy" for c in body["components"])
+
+    @pytest.mark.integration
+    @respx.mock
+    def test_prometheus_unreachable(self, client: TestClient) -> None:
+        respx.get("http://prometheus.test:9090/-/healthy").mock(side_effect=httpx.ConnectError("connection refused"))
+        respx.get("http://grafana.test:3000/api/health").mock(return_value=httpx.Response(200, json={"database": "ok"}))
+
+        with patch("src.api.main.Path") as mock_path_cls:
+            mock_path_cls.return_value.is_dir.return_value = True
+            resp = client.get("/health")
+
+        body = resp.json()
+        assert body["status"] == "degraded"
+        prom = next(c for c in body["components"] if c["name"] == "prometheus")
+        assert prom["status"] == "unhealthy"
+
+    @pytest.mark.integration
+    @respx.mock
+    def test_grafana_unreachable(self, client: TestClient) -> None:
+        respx.get("http://prometheus.test:9090/-/healthy").mock(return_value=httpx.Response(200, text="ok"))
+        respx.get("http://grafana.test:3000/api/health").mock(side_effect=httpx.ConnectError("connection refused"))
+
+        with patch("src.api.main.Path") as mock_path_cls:
+            mock_path_cls.return_value.is_dir.return_value = True
+            resp = client.get("/health")
+
+        body = resp.json()
+        assert body["status"] == "degraded"
+        grafana = next(c for c in body["components"] if c["name"] == "grafana")
+        assert grafana["status"] == "unhealthy"
+
+    @pytest.mark.integration
+    @respx.mock
+    def test_all_unhealthy(self, client: TestClient) -> None:
+        respx.get("http://prometheus.test:9090/-/healthy").mock(side_effect=httpx.ConnectError("connection refused"))
+        respx.get("http://grafana.test:3000/api/health").mock(side_effect=httpx.ConnectError("connection refused"))
+
+        with patch("src.api.main.Path") as mock_path_cls:
+            mock_path_cls.return_value.is_dir.return_value = False
+            resp = client.get("/health")
+
+        body = resp.json()
+        assert body["status"] == "unhealthy"
+        assert all(c["status"] == "unhealthy" for c in body["components"])

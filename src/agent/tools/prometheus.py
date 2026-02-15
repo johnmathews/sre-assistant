@@ -1,8 +1,9 @@
 """LangChain tool for querying a Prometheus instance via its HTTP API."""
 
 import logging
+import re
 from datetime import UTC, datetime
-from typing import TypedDict
+from typing import Any, TypedDict, cast
 
 import httpx
 from langchain_core.tools import ToolException, tool  # pyright: ignore[reportUnknownVariableType]
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 MAX_QUERY_LENGTH = 2000
 MAX_RANGE_STEP_SECONDS = 86400  # 1 day
 MAX_RANGE_DURATION_SECONDS = 30 * 86400  # 30 days
+MAX_SEARCH_RESULTS = 50
 DEFAULT_TIMEOUT_SECONDS = 15
 
 
@@ -34,6 +36,20 @@ class PrometheusInstantInput(BaseModel):
     time: str | None = Field(
         default=None,
         description="Optional RFC3339 or Unix timestamp. Defaults to current time.",
+    )
+
+
+class PrometheusSearchInput(BaseModel):
+    """Input for searching available Prometheus metric names."""
+
+    search_term: str = Field(
+        description=(
+            "A substring to search for in metric names. "
+            "For example 'mktxp' to find MikroTik metrics, "
+            "'node_cpu' to find CPU metrics, or 'container_memory' for container memory metrics."
+        ),
+        min_length=1,
+        max_length=200,
     )
 
 
@@ -137,6 +153,22 @@ class PrometheusResponse(TypedDict, total=False):
     data: PrometheusData
 
 
+class PrometheusLabelValuesResponse(TypedDict, total=False):
+    status: str
+    data: list[str]
+
+
+class PrometheusMetadataEntry(TypedDict, total=False):
+    type: str
+    help: str
+    unit: str
+
+
+class PrometheusMetadataResponse(TypedDict, total=False):
+    status: str
+    data: dict[str, list[PrometheusMetadataEntry]]
+
+
 def _format_result(data: PrometheusResponse) -> str:
     """Format a Prometheus API response into a readable string for the LLM."""
     status = data.get("status", "unknown")
@@ -197,6 +229,75 @@ async def _query_prometheus(endpoint: str, params: dict[str, str]) -> Prometheus
         return data
 
 
+async def _get_prometheus_raw(endpoint: str, params: dict[str, str] | None = None) -> dict[str, Any]:
+    """Make an HTTP request to a Prometheus API endpoint and return the raw JSON.
+
+    Unlike _query_prometheus, this does not assume the query/query_range response shape.
+    Used for label values (/api/v1/label/*/values) and metadata (/api/v1/metadata).
+    """
+    url = f"{get_settings().prometheus_url}{endpoint}"
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS) as client:
+        response = await client.get(url, params=params or {})
+        _ = response.raise_for_status()
+        data: dict[str, Any] = response.json()  # pyright: ignore[reportAny]
+        return data
+
+
+def _format_search_results(
+    matched_names: list[str],
+    metadata: dict[str, list[PrometheusMetadataEntry]],
+    search_term: str,
+) -> str:
+    """Format metric search results with optional type/help metadata for the LLM."""
+    if not matched_names:
+        return (
+            f'No metrics found matching "{search_term}". '
+            "Try a broader search term, or check the exporter prefix "
+            "(e.g. 'node_' for node_exporter, 'container_' for cadvisor, 'mktxp_' for MikroTik)."
+        )
+
+    sorted_names = sorted(matched_names)
+    truncated = len(sorted_names) > MAX_SEARCH_RESULTS
+    display_names = sorted_names[:MAX_SEARCH_RESULTS]
+
+    lines: list[str] = [f'Found {len(sorted_names)} metrics matching "{search_term}":\n']
+
+    for name in display_names:
+        entries = metadata.get(name, [])
+        if entries:
+            entry = entries[0]
+            metric_type = entry.get("type", "")
+            help_text = entry.get("help", "")
+            if metric_type and help_text:
+                lines.append(f"  {name} ({metric_type}): {help_text}")
+            elif metric_type:
+                lines.append(f"  {name} ({metric_type})")
+            else:
+                lines.append(f"  {name}")
+        else:
+            lines.append(f"  {name}")
+
+    if truncated:
+        lines.append(f"\n(showing first {MAX_SEARCH_RESULTS} of {len(sorted_names)} matches)")
+
+    lines.append("\nUse prometheus_instant_query or prometheus_range_query to fetch values.")
+    return "\n".join(lines)
+
+
+TOOL_DESCRIPTION_SEARCH = (
+    "Search for available Prometheus metric names matching a substring. "
+    "Use this BEFORE querying when you're unsure of the exact metric name. "
+    "Returns matching metric names with their type and description.\n\n"
+    "Examples:\n"
+    "- Search 'mktxp' to find MikroTik router metrics\n"
+    "- Search 'node_cpu' to find CPU-related node_exporter metrics\n"
+    "- Search 'container_memory' to find container memory metrics\n"
+    "- Search 'dhcp' to find DHCP-related metrics\n\n"
+    "After finding the right metric name, use prometheus_instant_query or "
+    "prometheus_range_query to fetch actual values."
+)
+
+
 TOOL_DESCRIPTION_INSTANT = (
     "Query Prometheus for the current value of a metric (instant query). "
     "Use this for point-in-time questions like 'what is the current CPU usage?' "
@@ -230,6 +331,46 @@ TOOL_DESCRIPTION_RANGE = (
 )
 
 
+@tool("prometheus_search_metrics", args_schema=PrometheusSearchInput)  # pyright: ignore[reportUnknownParameterType]
+async def prometheus_search_metrics(search_term: str) -> str:
+    """Search for available Prometheus metric names. See TOOL_DESCRIPTION_SEARCH."""
+    # Escape regex special characters so the search term is treated as a literal substring
+    escaped = re.escape(search_term)
+    match_param = f'{{__name__=~".*{escaped}.*"}}'
+
+    logger.info("Prometheus metric search: %s", search_term)
+    try:
+        label_data = cast(
+            PrometheusLabelValuesResponse,
+            await _get_prometheus_raw(
+                "/api/v1/label/__name__/values",
+                params={"match[]": match_param},
+            ),
+        )
+    except httpx.ConnectError as e:
+        raise ToolException(f"Cannot connect to Prometheus at {get_settings().prometheus_url}: {e}") from e
+    except httpx.TimeoutException as e:
+        raise ToolException(f"Prometheus search timed out after {DEFAULT_TIMEOUT_SECONDS}s: {e}") from e
+    except httpx.HTTPStatusError as e:
+        raise ToolException(f"Prometheus API error: HTTP {e.response.status_code} - {e.response.text[:500]}") from e
+
+    matched_names: list[str] = label_data.get("data", [])
+
+    # Fetch metadata for type + help text (best-effort)
+    metadata: dict[str, list[PrometheusMetadataEntry]] = {}
+    try:
+        meta_data = cast(PrometheusMetadataResponse, await _get_prometheus_raw("/api/v1/metadata"))
+        metadata = meta_data.get("data", {})
+    except Exception:
+        logger.warning("Failed to fetch metric metadata — returning names only")
+
+    return _format_search_results(matched_names, metadata, search_term)
+
+
+prometheus_search_metrics.description = TOOL_DESCRIPTION_SEARCH
+prometheus_search_metrics.handle_tool_error = True
+
+
 @tool("prometheus_instant_query", args_schema=PrometheusInstantInput)
 async def prometheus_instant_query(query: str, time: str | None = None) -> str:
     """Query Prometheus for current metric value. See TOOL_DESCRIPTION_INSTANT."""
@@ -251,6 +392,7 @@ async def prometheus_instant_query(query: str, time: str | None = None) -> str:
 
 
 prometheus_instant_query.description = TOOL_DESCRIPTION_INSTANT
+prometheus_instant_query.handle_tool_error = True
 
 
 @tool("prometheus_range_query", args_schema=PrometheusRangeInput)
@@ -276,3 +418,4 @@ async def prometheus_range_query(query: str, start: str, end: str, step: str = "
 
 
 prometheus_range_query.description = TOOL_DESCRIPTION_RANGE
+prometheus_range_query.handle_tool_error = True
