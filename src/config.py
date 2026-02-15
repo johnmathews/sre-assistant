@@ -8,7 +8,8 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str
     prometheus_url: str
-    alertmanager_url: str
+    grafana_url: str
+    grafana_api_key: str
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

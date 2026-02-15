@@ -34,10 +34,12 @@ def mock_settings() -> Generator[Any]:
     fake_settings = type("FakeSettings", (), {
         "anthropic_api_key": "sk-ant-test-fake",
         "prometheus_url": "http://prometheus.test:9090",
-        "alertmanager_url": "http://alertmanager.test:9093",
+        "grafana_url": "http://grafana.test:3000",
+        "grafana_api_key": "glsa_test_fake",
     })()
     with (
         patch("src.config.get_settings", return_value=fake_settings),
         patch("src.agent.tools.prometheus.get_settings", return_value=fake_settings),
+        patch("src.agent.tools.grafana_alerts.get_settings", return_value=fake_settings),
     ):
         yield fake_settings

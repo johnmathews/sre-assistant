@@ -293,7 +293,7 @@ The project is built incrementally, with each phase producing a working, demonst
 
 1. ~~**Project scaffolding** — `pyproject.toml`, `src/` package structure, `Makefile`, `.env.example`~~
 2. ~~**Prometheus tool** — `src/agent/tools/prometheus.py`: LangChain tool wrapping Prometheus HTTP API (`/api/v1/query`, `/api/v1/query_range`). Unit and integration tests.~~
-3. **Alertmanager tool** — `src/agent/tools/alertmanager.py`: fetches active alerts from `/api/v2/alerts`, parses labels/annotations/severity.
+3. ~~**Grafana alerting tool** — `src/agent/tools/grafana_alerts.py`: fetches active alerts and alert rule definitions from Grafana's alerting API (not Alertmanager — Grafana is the actual alerting system in use). Unit and integration tests.~~
 4. **Runbook RAG pipeline** — Sample runbooks in `runbooks/`, embedding pipeline, retriever tool, ingest script to rebuild the vector store on demand.
 5. **Agent assembly** — `src/agent/agent.py`: LangChain agent with all three tools. System prompt defining when to use live queries vs. RAG. Conversation memory. Test via REPL.
 6. **FastAPI backend** — `src/api/main.py`: `POST /ask` (question + session ID → response), `GET /health`.
