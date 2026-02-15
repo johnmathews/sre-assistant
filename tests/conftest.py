@@ -32,10 +32,10 @@ def mock_settings() -> Generator[Any]:
     Patches get_settings at every import site so cached references are overridden.
     """
     fake_settings = type("FakeSettings", (), {
-        "anthropic_api_key": "sk-ant-test-fake",
+        "openai_api_key": "sk-proj-test-fake",
         "prometheus_url": "http://prometheus.test:9090",
         "grafana_url": "http://grafana.test:3000",
-        "grafana_api_key": "glsa_test_fake",
+        "grafana_service_account_token": "glsa_test_fake",
     })()
     with (
         patch("src.config.get_settings", return_value=fake_settings),

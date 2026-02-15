@@ -86,7 +86,7 @@ class GetAlertRulesInput(BaseModel):
 def _grafana_headers() -> dict[str, str]:
     settings = get_settings()
     return {
-        "Authorization": f"Bearer {settings.grafana_api_key}",
+        "Authorization": f"Bearer {settings.grafana_service_account_token}",
         "Accept": "application/json",
     }
 

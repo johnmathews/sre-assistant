@@ -6,10 +6,10 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Application settings loaded from environment variables / .env file."""
 
-    anthropic_api_key: str
+    openai_api_key: str
     prometheus_url: str
     grafana_url: str
-    grafana_api_key: str
+    grafana_service_account_token: str
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

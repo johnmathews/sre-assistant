@@ -14,7 +14,7 @@ Target environment: Proxmox homelab with 80+ services across multiple VMs and LX
 
 **Not everything is RAG.** The agent uses two distinct data access patterns:
 
-- **Live tool calls** (LangChain tools): Prometheus metrics, Alertmanager alerts, Loki logs — queried in real-time via
+- **Live tool calls** (LangChain tools): Prometheus metrics, Grafana alerts, Loki logs — queried in real-time via
   structured APIs
 - **RAG retrieval** (vector store): Runbooks, Ansible playbooks/inventory, past incident summaries — embedded in
   Chroma/FAISS
@@ -24,12 +24,12 @@ The LangChain agent decides which approach to use based on the question.
 ## Tech Stack
 
 - **Agent framework:** LangChain (Python)
-- **LLM:** Claude API (Anthropic)
+- **LLM:** OpenAI API (GPT)
 - **Vector store:** Chroma or FAISS
 - **Backend:** FastAPI (`/ask` endpoint)
 - **Frontend:** Streamlit (MVP) or CLI
 - **Observability:** Prometheus metrics, Grafana dashboards, Loki logs
-- **Infrastructure:** Proxmox, Ansible, Alertmanager
+- **Infrastructure:** Proxmox, Ansible
 
 ## Development Conventions
 
