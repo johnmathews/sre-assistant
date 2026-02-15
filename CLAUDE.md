@@ -43,17 +43,9 @@ The LangChain agent decides which approach to use based on the question.
 
 This applies to: starting a new build phase, introducing a new tool/integration, making significant architectural changes, or adding a new dependency. It does not apply to small bug fixes or minor refactoring within already-understood code.
 
-## Phase 1 Build Plan: Alert Explainer
+## Phase 1 Build Plan
 
-Build in this order (each step depends on the previous):
-
-1. **Project scaffolding** — `pyproject.toml` (langchain, langchain-anthropic, fastapi, uvicorn, chromadb, pyyaml), `src/` package structure, `Makefile`, `.env.example` for API keys and endpoint URLs
-2. **Prometheus tool** — `src/agent/tools/prometheus.py`: LangChain tool wrapping Prometheus HTTP API (`/api/v1/query`, `/api/v1/query_range`). Test standalone against the real instance before wiring into the agent.
-3. **Alertmanager tool** — `src/agent/tools/alertmanager.py`: fetches active alerts from `/api/v2/alerts`, parses labels/annotations/severity. Simpler than Prometheus (just GET with optional filters).
-4. **Runbook RAG pipeline** — Sample runbooks in `runbooks/`, embedding pipeline (`src/agent/retrieval/embeddings.py`), retriever tool (`src/agent/retrieval/runbooks.py`), ingest script to rebuild the vector store on demand.
-5. **Agent assembly** — `src/agent/agent.py`: LangChain agent with the three tools. System prompt defining when to use live queries vs. RAG. `src/agent/memory.py` for session-scoped conversation buffer. Test via REPL first.
-6. **FastAPI backend** — `src/api/main.py`: `POST /ask` (question + session ID → agent response), `GET /health`. Thin glue layer.
-7. **Basic CLI** — Simple input loop calling the agent directly (skip HTTP for local use). Streamlit comes later.
+See `readme.md` → "Phase 1: Alert Explainer" → "Build steps" for the detailed step-by-step plan with progress tracking.
 
 ## Commands
 
