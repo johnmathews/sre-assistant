@@ -6,6 +6,7 @@ from pathlib import Path
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
+from pydantic import SecretStr
 
 from src.config import get_settings
 
@@ -129,7 +130,7 @@ def get_embeddings() -> OpenAIEmbeddings:
     """Create an OpenAI embeddings instance using project settings."""
     settings = get_settings()
     return OpenAIEmbeddings(
-        api_key=settings.openai_api_key,  # type: ignore[arg-type]
+        api_key=SecretStr(settings.openai_api_key),
         model="text-embedding-3-small",
     )
 
@@ -151,7 +152,7 @@ def build_vector_store(
     embeddings = get_embeddings()
 
     logger.info("Building vector store with %d documents at %s", len(docs), persist_dir)
-    vector_store = Chroma.from_documents(
+    vector_store = Chroma.from_documents(  # pyright: ignore[reportUnknownMemberType]
         documents=docs,
         embedding=embeddings,
         collection_name=COLLECTION_NAME,

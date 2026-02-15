@@ -1,12 +1,15 @@
 """LangChain agent assembly — wires tools, system prompt, and memory together."""
 
 import logging
+from typing import Any
 
 from langchain.agents import create_agent  # pyright: ignore[reportUnknownVariableType]
-from langchain_core.messages import AIMessage, HumanMessage  # pyright: ignore[reportUnknownVariableType]
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph.state import CompiledStateGraph
+from pydantic import SecretStr
 
 from src.agent.tools.grafana_alerts import grafana_get_alert_rules, grafana_get_alerts
 from src.agent.tools.prometheus import (
@@ -17,6 +20,11 @@ from src.agent.tools.prometheus import (
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# LangGraph has no public type stubs — the compiled agent type is opaque to
+# static analysers.  Using Any avoids cascading "partially unknown" warnings
+# in every module that imports build_agent / invoke_agent.
+type AgentGraph = Any
 
 SYSTEM_PROMPT = """\
 You are an SRE assistant for a Proxmox homelab running 80+ services across multiple VMs and LXCs.
@@ -50,9 +58,9 @@ then **search runbooks** for relevant procedures or context.
 """
 
 
-def _get_tools() -> list:  # type: ignore[type-arg]
+def _get_tools() -> list[BaseTool]:
     """Collect all agent tools, conditionally including runbook search."""
-    tools: list = [  # type: ignore[type-arg]
+    tools: list[BaseTool] = [
         prometheus_search_metrics,
         prometheus_instant_query,
         prometheus_range_query,
@@ -74,7 +82,7 @@ def _get_tools() -> list:  # type: ignore[type-arg]
 def build_agent(
     model_name: str = "gpt-4o-mini",
     temperature: float = 0.0,
-) -> CompiledStateGraph:  # type: ignore[type-arg]
+) -> AgentGraph:
     """Build and return the SRE assistant agent.
 
     Args:
@@ -89,7 +97,7 @@ def build_agent(
     llm = ChatOpenAI(
         model=model_name,
         temperature=temperature,
-        api_key=settings.openai_api_key,  # type: ignore[arg-type]
+        api_key=SecretStr(settings.openai_api_key),
     )
 
     tools = _get_tools()
@@ -97,7 +105,7 @@ def build_agent(
 
     checkpointer = MemorySaver()
 
-    agent: CompiledStateGraph = create_agent(  # type: ignore[type-arg]
+    agent: AgentGraph = create_agent(
         model=llm,
         tools=tools,
         system_prompt=SYSTEM_PROMPT,
@@ -108,7 +116,7 @@ def build_agent(
 
 
 async def invoke_agent(
-    agent: CompiledStateGraph,  # type: ignore[type-arg]
+    agent: AgentGraph,
     message: str,
     session_id: str = "default",
 ) -> str:
@@ -124,16 +132,16 @@ async def invoke_agent(
     Returns:
         The agent's text response.
     """
-    config = {"configurable": {"thread_id": session_id}}
+    config: RunnableConfig = {"configurable": {"thread_id": session_id}}
 
-    result = await agent.ainvoke(  # pyright: ignore[reportUnknownMemberType]
+    result: dict[str, Any] = await agent.ainvoke(
         {"messages": [HumanMessage(content=message)]},
-        config=config,  # type: ignore[arg-type]
+        config=config,
     )
 
     # Extract the last AI message from the result
-    messages = result.get("messages", [])  # pyright: ignore[reportUnknownMemberType]
-    for msg in reversed(messages):  # pyright: ignore[reportUnknownVariableType]
+    messages: list[Any] = result.get("messages", [])
+    for msg in reversed(messages):
         if isinstance(msg, AIMessage) and isinstance(msg.content, str) and msg.content:
             return msg.content
 

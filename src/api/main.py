@@ -7,7 +7,6 @@ The agent is built once at startup and shared across requests.
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -145,15 +144,14 @@ async def health() -> HealthResponse:
         components.append(ComponentHealth(name="grafana", status="unhealthy", detail=str(exc)))
 
     # --- Vector store ---
-    chroma_path = Path(CHROMA_PERSIST_DIR)
-    if chroma_path.is_dir():
+    if CHROMA_PERSIST_DIR.is_dir():
         components.append(ComponentHealth(name="vector_store", status="healthy"))
     else:
         components.append(
             ComponentHealth(
                 name="vector_store",
                 status="unhealthy",
-                detail=f"{chroma_path}/ not found — run 'make ingest'",
+                detail=f"{CHROMA_PERSIST_DIR}/ not found — run 'make ingest'",
             )
         )
 

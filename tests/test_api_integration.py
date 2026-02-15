@@ -113,8 +113,8 @@ class TestHealthEndpoint:
         )
         respx.get("http://grafana.test:3000/api/health").mock(return_value=httpx.Response(200, json={"database": "ok"}))
 
-        with patch("src.api.main.Path") as mock_path_cls:
-            mock_path_cls.return_value.is_dir.return_value = True
+        with patch("src.api.main.CHROMA_PERSIST_DIR") as mock_chroma_dir:
+            mock_chroma_dir.is_dir.return_value = True
             resp = client.get("/health")
 
         assert resp.status_code == 200
@@ -129,8 +129,8 @@ class TestHealthEndpoint:
         respx.get("http://prometheus.test:9090/-/healthy").mock(side_effect=httpx.ConnectError("connection refused"))
         respx.get("http://grafana.test:3000/api/health").mock(return_value=httpx.Response(200, json={"database": "ok"}))
 
-        with patch("src.api.main.Path") as mock_path_cls:
-            mock_path_cls.return_value.is_dir.return_value = True
+        with patch("src.api.main.CHROMA_PERSIST_DIR") as mock_chroma_dir:
+            mock_chroma_dir.is_dir.return_value = True
             resp = client.get("/health")
 
         body = resp.json()
@@ -144,8 +144,8 @@ class TestHealthEndpoint:
         respx.get("http://prometheus.test:9090/-/healthy").mock(return_value=httpx.Response(200, text="ok"))
         respx.get("http://grafana.test:3000/api/health").mock(side_effect=httpx.ConnectError("connection refused"))
 
-        with patch("src.api.main.Path") as mock_path_cls:
-            mock_path_cls.return_value.is_dir.return_value = True
+        with patch("src.api.main.CHROMA_PERSIST_DIR") as mock_chroma_dir:
+            mock_chroma_dir.is_dir.return_value = True
             resp = client.get("/health")
 
         body = resp.json()
@@ -159,8 +159,8 @@ class TestHealthEndpoint:
         respx.get("http://prometheus.test:9090/-/healthy").mock(side_effect=httpx.ConnectError("connection refused"))
         respx.get("http://grafana.test:3000/api/health").mock(side_effect=httpx.ConnectError("connection refused"))
 
-        with patch("src.api.main.Path") as mock_path_cls:
-            mock_path_cls.return_value.is_dir.return_value = False
+        with patch("src.api.main.CHROMA_PERSIST_DIR") as mock_chroma_dir:
+            mock_chroma_dir.is_dir.return_value = False
             resp = client.get("/health")
 
         body = resp.json()
