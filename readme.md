@@ -7,6 +7,32 @@ handling.
 
 ---
 
+## Table of Contents
+
+- [Motivation \& Context](#motivation--context)
+- [Goals](#goals)
+- [What It Should Achieve](#what-it-should-achieve)
+- [Architecture](#architecture)
+- [Use Cases](#use-cases)
+- [SLIs/SLOs About Itself](#slisslos-about-itself)
+- [Failure Modes \& Handling](#failure-modes--handling)
+- [Evaluation Framework](#evaluation-framework)
+- [Conversation Memory](#conversation-memory)
+- [Cost Awareness](#cost-awareness)
+- [Tech Stack](#tech-stack)
+- [Build Order](#build-order)
+  - [Phase 1: Alert Explainer (Core Agent)](#phase-1-alert-explainer-core-agent)
+  - [Phase 2: Synthetic Incident Generator](#phase-2-synthetic-incident-generator)
+  - [Phase 3: Change Correlation](#phase-3-change-correlation)
+  - [Phase 4: SLI/SLO Dashboard \& Instrumentation](#phase-4-slislo-dashboard--instrumentation)
+  - [Phase 5: Evaluation Framework](#phase-5-evaluation-framework)
+  - [Phase 6: Weekly Reliability Report](#phase-6-weekly-reliability-report)
+- [Repository Structure (Planned)](#repository-structure-planned)
+- [Non-Goals](#non-goals)
+- [License](#license)
+
+---
+
 ## Motivation & Context
 
 Most AI portfolio projects are chatbots over static documents. This project is different: it connects to live
