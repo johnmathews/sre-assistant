@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from src.agent.agent import build_agent, invoke_agent
+from src.agent.retrieval.embeddings import CHROMA_PERSIST_DIR
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -144,7 +145,7 @@ async def health() -> HealthResponse:
         components.append(ComponentHealth(name="grafana", status="unhealthy", detail=str(exc)))
 
     # --- Vector store ---
-    chroma_path = Path("runbooks/chroma_store")
+    chroma_path = Path(CHROMA_PERSIST_DIR)
     if chroma_path.is_dir():
         components.append(ComponentHealth(name="vector_store", status="healthy"))
     else:
@@ -152,7 +153,7 @@ async def health() -> HealthResponse:
             ComponentHealth(
                 name="vector_store",
                 status="unhealthy",
-                detail="runbooks/chroma_store/ not found — run 'make ingest'",
+                detail=f"{chroma_path}/ not found — run 'make ingest'",
             )
         )
 

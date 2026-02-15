@@ -56,6 +56,10 @@ make serve
 # POST /ask  — send questions to the agent
 # GET /health — check infrastructure component status
 
+# Start the Streamlit web UI (requires API server running)
+make ui
+# Opens browser at http://localhost:8501
+
 # Run the full check suite (lint + typecheck + tests)
 make check
 ```

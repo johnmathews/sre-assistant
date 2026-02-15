@@ -1,4 +1,4 @@
-.PHONY: install dev lint format typecheck test test-e2e check serve ingest chat
+.PHONY: install dev lint format typecheck test test-e2e check serve ingest chat ui
 
 install:
 	uv sync
@@ -33,3 +33,6 @@ ingest:
 
 chat:
 	uv run python -m src.cli
+
+ui:
+	uv run streamlit run src/ui/app.py --server.port 8501
