@@ -1,4 +1,4 @@
-.PHONY: install dev lint format typecheck test test-e2e check serve ingest
+.PHONY: install dev lint format typecheck test test-e2e check serve ingest chat
 
 install:
 	uv sync
@@ -30,3 +30,6 @@ serve:
 
 ingest:
 	uv run python -m scripts.ingest_runbooks
+
+chat:
+	uv run python -m src.cli

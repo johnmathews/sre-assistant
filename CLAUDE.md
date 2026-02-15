@@ -59,6 +59,7 @@ make test-e2e      # E2E tests against real services (needs .env, costs money)
 make check         # lint + typecheck + test in one command
 make serve         # FastAPI dev server on :8000
 make ingest        # Rebuild Chroma vector store from runbooks/
+make chat          # Interactive CLI REPL for the agent
 uv run pytest tests/test_foo.py::test_bar  # Run a single test
 ```
 

@@ -41,5 +41,7 @@ def mock_settings() -> Generator[Any]:
         patch("src.config.get_settings", return_value=fake_settings),
         patch("src.agent.tools.prometheus.get_settings", return_value=fake_settings),
         patch("src.agent.tools.grafana_alerts.get_settings", return_value=fake_settings),
+        patch("src.agent.agent.get_settings", return_value=fake_settings),
+        patch("src.agent.retrieval.embeddings.get_settings", return_value=fake_settings),
     ):
         yield fake_settings
