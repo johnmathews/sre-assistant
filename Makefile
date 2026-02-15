@@ -1,4 +1,4 @@
-.PHONY: install dev lint typecheck test serve
+.PHONY: install dev lint format typecheck test test-e2e check serve
 
 install:
 	uv sync
@@ -19,6 +19,11 @@ typecheck:
 
 test:
 	uv run pytest
+
+test-e2e:
+	uv run pytest --run-e2e
+
+check: lint typecheck test
 
 serve:
 	uv run uvicorn src.api.main:app --reload --port 8000

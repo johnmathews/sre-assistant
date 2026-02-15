@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from pydantic_settings import BaseSettings
 
 
@@ -11,4 +13,7 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
-settings = Settings()  # type: ignore[call-arg]
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Lazily load and cache settings. Fails at first call, not at import time."""
+    return Settings()  # type: ignore[call-arg]

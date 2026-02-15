@@ -1,0 +1,43 @@
+"""Shared pytest configuration and fixtures."""
+
+from collections.abc import Generator
+from typing import Any
+from unittest.mock import patch
+
+import pytest
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--run-e2e",
+        action="store_true",
+        default=False,
+        help="Run e2e tests that hit real services (requires .env with valid credentials)",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if config.getoption("--run-e2e"):
+        return
+    skip_e2e = pytest.mark.skip(reason="Need --run-e2e flag to run")
+    for item in items:
+        if "e2e" in item.keywords:
+            item.add_marker(skip_e2e)
+
+
+@pytest.fixture
+def mock_settings() -> Generator[Any]:
+    """Provide fake settings so tests don't need a .env file.
+
+    Patches get_settings at every import site so cached references are overridden.
+    """
+    fake_settings = type("FakeSettings", (), {
+        "anthropic_api_key": "sk-ant-test-fake",
+        "prometheus_url": "http://prometheus.test:9090",
+        "alertmanager_url": "http://alertmanager.test:9093",
+    })()
+    with (
+        patch("src.config.get_settings", return_value=fake_settings),
+        patch("src.agent.tools.prometheus.get_settings", return_value=fake_settings),
+    ):
+        yield fake_settings

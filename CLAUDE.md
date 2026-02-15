@@ -62,10 +62,23 @@ make dev           # Install all dependencies (including dev tools)
 make lint          # Ruff check + format check
 make format        # Auto-fix lint and formatting
 make typecheck     # mypy strict mode
-make test          # pytest
+make test          # Unit + integration tests (mocked HTTP, no secrets needed)
+make test-e2e      # E2E tests against real services (needs .env, costs money)
+make check         # lint + typecheck + test in one command
 make serve         # FastAPI dev server on :8000
 uv run pytest tests/test_foo.py::test_bar  # Run a single test
 ```
+
+## Testing Strategy
+
+Three test tiers:
+- **Unit tests** (`tests/test_*.py`) — pure functions (parsing, validation, formatting). No mocks, no IO.
+- **Integration tests** (`tests/test_*_integration.py`, `@pytest.mark.integration`) — test tool functions with mocked HTTP via `respx`. Verify API calls, response handling, and error paths without real services.
+- **E2E tests** (`@pytest.mark.e2e`) — hit real Prometheus/Alertmanager/LLM. Skipped by default, run with `--run-e2e`. Requires `.env`.
+
+`make test` runs unit + integration (safe for CI). `make test-e2e` runs everything.
+
+The `mock_settings` fixture in `tests/conftest.py` provides fake config so tests never need a `.env` file. When adding new modules that import `get_settings`, add a corresponding patch to this fixture.
 
 ## User Shorthand
 
@@ -96,6 +109,10 @@ The project is built incrementally. Each phase produces a working, demonstrable 
 - `runbooks/` — Operational runbooks (markdown)
 - `ansible/` — Symlink/submodule to ansible home-server project
 - `dashboards/` — Grafana dashboard JSON exports
+
+## Secrets
+
+This is a **public repository**. Never commit secrets, API keys, tokens, or internal hostnames/IPs. Secrets are loaded at runtime from `.env` (gitignored). The `.env.example` file documents required variables without real values. For production/deployment, secrets should be managed via environment variables or a secrets manager (the homelab infra uses Ansible Vault).
 
 ## Design Principles
 

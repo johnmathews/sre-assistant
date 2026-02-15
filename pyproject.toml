@@ -22,6 +22,7 @@ dev = [
     "ruff>=0.9",
     "pytest>=8.0",
     "pytest-asyncio>=0.25",
+    "respx>=0.22.0",
 ]
 
 [tool.mypy]
@@ -38,3 +39,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: tests that mock external HTTP APIs (run by default)",
+    "e2e: tests that hit real services and cost money (skipped by default, run with --run-e2e)",
+]
