@@ -84,7 +84,7 @@ The `mock_settings` fixture in `tests/conftest.py` provides fake config so tests
 The project is built incrementally. Each phase produces a working, demonstrable system:
 
 1. **Alert Explainer** — Core LangChain agent + Prometheus/Alertmanager tools + runbook RAG + FastAPI + basic UI
-2. **Synthetic Incident Generator** — Scripts to inject load/faults, trigger real alerts, enable on-demand demos
+2. ~~**Synthetic Incident Generator**~~ — *Shelved.* Real homelab provides adequate test signals.
 3. **Change Correlation** — Ansible log ingestion, timeline correlation between changes and alerts
 4. **SLI/SLO Dashboard** — Self-instrumentation with Prometheus metrics, Grafana dashboard for the assistant's own
    reliability

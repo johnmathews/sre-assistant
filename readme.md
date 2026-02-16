@@ -350,12 +350,14 @@ The project is built incrementally, with each phase producing a working, demonst
 
 **Phase 1 complete.** All build steps finished — the agent has Prometheus tools, Grafana alerting tools, runbook RAG, a system prompt with conversation memory, a FastAPI backend (`POST /ask`, `GET /health`), and an interactive CLI. 94 tests passing.
 
-### Phase 2: Synthetic Incident Generator
+### Phase 2: Synthetic Incident Generator — *Shelved*
 
-- Build scripts to inject load (CPU stress, disk fill, service kill)
-- Wire them to trigger real Alertmanager alerts
-- Create a "demo mode" that runs a synthetic incident and lets the agent investigate
-- **Deliverable:** On-demand demo that works every time
+- ~~Build scripts to inject load (CPU stress, disk fill, service kill)~~
+- ~~Wire them to trigger real Alertmanager alerts~~
+- ~~Create a "demo mode" that runs a synthetic incident and lets the agent investigate~~
+- ~~**Deliverable:** On-demand demo that works every time~~
+
+**Shelved.** The live homelab generates enough real incidents and patterns to demo and test the agent's reasoning. Considered three approaches (mock HTTP scenario server, tool-level interception, separate Prometheus instance) but decided the complexity isn't justified when real infrastructure provides adequate test signals. May revisit if the project needs a portable offline demo.
 
 ### Phase 3: Change Correlation
 

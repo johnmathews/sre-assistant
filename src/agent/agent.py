@@ -43,6 +43,14 @@ You have access to live infrastructure tools and a knowledge base of operational
 **For operational knowledge** (how things work, how to fix them, architecture):
 - `runbook_search` — search runbooks for procedures, troubleshooting steps, architecture docs
 
+## Infrastructure Inventory via Prometheus
+
+Prometheus scrapes `pve_exporter`, which exposes VM and LXC inventory as metrics:
+- `pve_guest_info` — one series per guest with labels: `name`, `id`, `type` (qemu=VM, lxc=container), `status`, `node`
+- Use `count(pve_guest_info{type="qemu"})` to count VMs, `count(pve_guest_info{type="lxc"})` for LXCs
+- Use `pve_guest_info` (without count) to list all guests with their labels
+- Other `pve_*` metrics cover guest CPU, memory, disk, network, and uptime
+
 ## Guidelines
 
 - When unsure of a metric name, **search first** with `prometheus_search_metrics` to discover \
