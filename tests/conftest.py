@@ -36,6 +36,7 @@ def mock_settings() -> Generator[Any]:
         (),
         {
             "openai_api_key": "sk-proj-test-fake",
+            "openai_model": "gpt-4o-mini",
             "prometheus_url": "http://prometheus.test:9090",
             "grafana_url": "http://grafana.test:3000",
             "grafana_service_account_token": "glsa_test_fake",

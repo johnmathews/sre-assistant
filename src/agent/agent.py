@@ -175,28 +175,29 @@ def _get_tools() -> list[BaseTool]:
 
 
 def build_agent(
-    model_name: str = "gpt-4o-mini",
+    model_name: str | None = None,
     temperature: float = 0.0,
 ) -> AgentGraph:
     """Build and return the SRE assistant agent.
 
     Args:
-        model_name: OpenAI model to use (default: gpt-4o-mini for cost efficiency).
+        model_name: OpenAI model to use. Defaults to OPENAI_MODEL from config.
         temperature: LLM temperature (0.0 for deterministic tool-calling).
 
     Returns:
         A compiled LangGraph agent with tool-calling and conversation memory.
     """
     settings = get_settings()
+    resolved_model = model_name or settings.openai_model
 
     llm = ChatOpenAI(
-        model=model_name,
+        model=resolved_model,
         temperature=temperature,
         api_key=SecretStr(settings.openai_api_key),
     )
 
     tools = _get_tools()
-    logger.info("Building agent with %d tools: %s", len(tools), [t.name for t in tools])
+    logger.info("Building agent with model=%s, %d tools: %s", resolved_model, len(tools), [t.name for t in tools])
 
     checkpointer = MemorySaver()
 

@@ -44,6 +44,7 @@ make dev
 # Copy and fill in your API keys
 cp .env.example .env
 # Edit .env — required: OPENAI_API_KEY, PROMETHEUS_URL, GRAFANA_URL, GRAFANA_SERVICE_ACCOUNT_TOKEN
+# Optional: OPENAI_MODEL (default: gpt-4o-mini — see docs/dependencies.md for model comparison)
 # Optional: PROXMOX_URL + PROXMOX_API_TOKEN (enables VM/container config tools)
 # Optional: PBS_URL + PBS_API_TOKEN (enables backup status tools)
 

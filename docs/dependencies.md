@@ -28,13 +28,32 @@
 | `pytest-asyncio` | Async test support (all tools are async) |
 | `respx` | HTTP mocking for httpx (integration tests) |
 
+## LLM Model Selection
+
+The model is configurable via `OPENAI_MODEL` in `.env` (default: `gpt-4o-mini`).
+
+| Model | Speed | Tool Use Quality | Cost (per 1M tokens in/out) | Best For |
+|-------|-------|-----------------|----------------------------|----------|
+| `gpt-4o-mini` | Fast (~2-5s) | Good — handles most tool routing correctly | ~$0.15 / $0.60 | Day-to-day use, cost-sensitive |
+| `gpt-4.1-mini` | Fast (~2-5s) | Good — similar to 4o-mini, newer | ~$0.40 / $1.60 | Budget-friendly upgrade |
+| `gpt-4o` | Moderate (~5-10s) | Very good — better PromQL construction | ~$2.50 / $10.00 | Complex queries, multi-step reasoning |
+| `gpt-4.1` | Moderate (~5-10s) | Excellent — best at multi-step tool use | ~$2.00 / $8.00 | Debugging, incident investigation |
+
+**Tradeoffs:**
+- `gpt-4o-mini` is 15-60x cheaper than the full models and handles straightforward questions well (alert summaries,
+  listing VMs, runbook lookups). It struggles with complex PromQL construction and multi-step reasoning.
+- `gpt-4o` / `gpt-4.1` produce better PromQL (e.g., correctly using `topk()`, `avg_over_time()`, `by (label)`) and
+  handle follow-up questions more reliably, but each query costs significantly more.
+- For development and testing, `gpt-4o-mini` is recommended. Switch to a larger model for demos or when query quality
+  matters more than cost.
+
 ## External Services
 
 ### Required
 
 | Service | What it provides | Auth |
 |---------|-----------------|------|
-| **OpenAI API** | LLM inference (GPT-4o-mini default) | API key (`OPENAI_API_KEY`) |
+| **OpenAI API** | LLM inference (configurable via `OPENAI_MODEL`) | API key (`OPENAI_API_KEY`) |
 | **Prometheus** | Metrics storage and PromQL query engine | None (HTTP) |
 | **Grafana** | Unified alerting (alert states + rule definitions) | Service account token (`GRAFANA_SERVICE_ACCOUNT_TOKEN`) |
 

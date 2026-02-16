@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables / .env file."""
 
     openai_api_key: str
+    openai_model: str = "gpt-4o-mini"
     prometheus_url: str
     grafana_url: str
     grafana_service_account_token: str
