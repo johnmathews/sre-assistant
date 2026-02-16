@@ -292,7 +292,8 @@ TOOL_DESCRIPTION_SEARCH = (
     "- Search 'mktxp' to find MikroTik router metrics\n"
     "- Search 'node_cpu' to find CPU-related node_exporter metrics\n"
     "- Search 'container_memory' to find container memory metrics\n"
-    "- Search 'dhcp' to find DHCP-related metrics\n\n"
+    "- Search 'dhcp' to find DHCP-related metrics\n"
+    "- Search 'pve' to find Proxmox VM/LXC inventory and resource metrics\n\n"
     "After finding the right metric name, use prometheus_instant_query or "
     "prometheus_range_query to fetch actual values."
 )
@@ -300,8 +301,9 @@ TOOL_DESCRIPTION_SEARCH = (
 
 TOOL_DESCRIPTION_INSTANT = (
     "Query Prometheus for the current value of a metric (instant query). "
-    "Use this for point-in-time questions like 'what is the current CPU usage?' "
-    "or 'how much memory is free right now?'.\n\n"
+    "Use this for point-in-time questions like 'what is the current CPU usage?', "
+    "'how much memory is free right now?', or 'how many VMs are running?' "
+    "(infrastructure inventory is available via pve_exporter metrics).\n\n"
     "This homelab's Prometheus setup:\n"
     "- The `hostname` label identifies each host "
     "(e.g. hostname='jellyfin', hostname='proxmox', hostname='immich')\n"

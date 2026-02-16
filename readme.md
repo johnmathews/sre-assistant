@@ -43,7 +43,9 @@ make dev
 
 # Copy and fill in your API keys
 cp .env.example .env
-# Edit .env with your OPENAI_API_KEY, PROMETHEUS_URL, GRAFANA_URL, GRAFANA_SERVICE_ACCOUNT_TOKEN
+# Edit .env — required: OPENAI_API_KEY, PROMETHEUS_URL, GRAFANA_URL, GRAFANA_SERVICE_ACCOUNT_TOKEN
+# Optional: PROXMOX_URL + PROXMOX_API_TOKEN (enables VM/container config tools)
+# Optional: PBS_URL + PBS_API_TOKEN (enables backup status tools)
 
 # Build the runbook vector store (required before first use)
 make ingest
@@ -154,17 +156,17 @@ The assistant ingests data from two categories of sources and uses them in funda
 ```
 Live Sources (LangChain Tools)       Knowledge Base (RAG)
 ├── Prometheus API                   ├── Runbooks (.md)
-├── Alertmanager API                 ├── Ansible playbooks & inventory
-├── Loki / Log API                   └── Past incident summaries
-│                                           ↓
-│                                    Vector Store (Chroma / FAISS)
+├── Grafana Alerting API             ├── Ansible playbooks & inventory
+├── Proxmox VE API (optional)        └── Past incident summaries
+├── PBS API (optional)                      ↓
+├── Loki / Log API                   Vector Store (Chroma / FAISS)
 │                                           ↓
 └──────────────┬────────────────────────────┘
                ↓
         LangChain Agent
         (routes between tools and retrieval)
                ↓
-           LLM (Claude API)
+           LLM (OpenAI API)
                ↓
          FastAPI Backend
                ↓
@@ -348,7 +350,11 @@ The project is built incrementally, with each phase producing a working, demonst
 6. ~~**FastAPI backend** — `src/api/main.py`: `POST /ask` (question + session ID → response), `GET /health`.~~
 7. ~~**Basic CLI** — Simple input loop calling the agent directly. Streamlit comes later.~~
 
-**Phase 1 complete.** All build steps finished — the agent has Prometheus tools, Grafana alerting tools, runbook RAG, a system prompt with conversation memory, a FastAPI backend (`POST /ask`, `GET /health`), and an interactive CLI. 94 tests passing.
+8. ~~**Proxmox VE tools** — `src/agent/tools/proxmox.py`: 4 tools for VM/container listing, guest config, node status, and task history. Conditional registration (only when `PROXMOX_URL` is set). Unit and integration tests.~~
+9. ~~**PBS tools** — `src/agent/tools/pbs.py`: 3 tools for datastore status, backup groups, and task history. Conditional registration (only when `PBS_URL` is set). Unit and integration tests.~~
+10. ~~**Design documentation** — `docs/architecture.md`, `docs/tool-reference.md`, `docs/code-flow.md`, `docs/dependencies.md`.~~
+
+**Phase 1 complete.** All build steps finished — the agent has Prometheus tools, Grafana alerting tools, Proxmox VE tools, PBS tools, runbook RAG, a system prompt with conversation memory, a FastAPI backend (`POST /ask`, `GET /health`), an interactive CLI, and design documentation. 171 tests passing.
 
 ### Phase 2: Synthetic Incident Generator — *Shelved*
 
@@ -397,13 +403,14 @@ homelab-sre-assistant/
 │   ├── agent/
 │   │   ├── agent.py              # LangChain agent setup
 │   │   ├── tools/
-│   │   │   ├── prometheus.py     # Prometheus query tool
-│   │   │   ├── alertmanager.py   # Alertmanager query tool
-│   │   │   ├── loki.py           # Log query tool
-│   │   │   └── ansible.py        # Ansible log tool
+│   │   │   ├── prometheus.py     # Prometheus query tools (3)
+│   │   │   ├── grafana_alerts.py # Grafana alerting tools (2)
+│   │   │   ├── proxmox.py        # Proxmox VE tools (4, optional)
+│   │   │   ├── pbs.py            # PBS backup tools (3, optional)
+│   │   │   ├── loki.py           # Log query tool (planned)
+│   │   │   └── ansible.py        # Ansible log tool (planned)
 │   │   ├── retrieval/
 │   │   │   ├── embeddings.py     # Document embedding pipeline
-│   │   │   ├── ansible.py        # Ansible configuration retrieval
 │   │   │   └── runbooks.py       # Runbook RAG retrieval
 │   │   └── memory.py             # Conversation memory management
 │   ├── api/
@@ -411,14 +418,16 @@ homelab-sre-assistant/
 │   ├── ui/
 │   │   └── streamlit_app.py      # Streamlit frontend
 │   ├── eval/
-│   │   ├── cases.yaml            # Evaluation test cases
-│   │   └── runner.py             # Evaluation execution
-│   ├── incidents/
-│   │   ├── generator.py          # Synthetic incident injection
-│   │   └── scenarios/            # Predefined incident scenarios
+│   │   ├── cases.yaml            # Evaluation test cases (planned)
+│   │   └── runner.py             # Evaluation execution (planned)
 │   └── observability/
-│       ├── metrics.py            # Prometheus metric exports
-│       └── cost_tracker.py       # Token usage and cost tracking
+│       ├── metrics.py            # Prometheus metric exports (planned)
+│       └── cost_tracker.py       # Token usage and cost tracking (planned)
+├── docs/                         # Design documentation
+│   ├── architecture.md           # System overview, data flow, service dependencies
+│   ├── tool-reference.md         # All 13 tools with inputs and examples
+│   ├── code-flow.md              # Request lifecycle, tool registration, settings
+│   └── dependencies.md           # Python packages, external services, auth setup
 ├── runbooks/                     # Operational runbooks (markdown)
 ├── ansible/                      # Symlink or submodule to ansible home-server project
 ├── dashboards/                   # Grafana dashboard JSON exports

@@ -143,6 +143,48 @@ async def health() -> HealthResponse:
     except Exception as exc:
         components.append(ComponentHealth(name="grafana", status="unhealthy", detail=str(exc)))
 
+    # --- Proxmox VE (optional) ---
+    if settings.proxmox_url:
+        try:
+            async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+                resp = await client.get(
+                    f"{settings.proxmox_url}/api2/json/version",
+                    headers={"Authorization": f"PVEAPIToken={settings.proxmox_api_token}"},
+                )
+                if resp.status_code == 200:
+                    components.append(ComponentHealth(name="proxmox", status="healthy"))
+                else:
+                    components.append(
+                        ComponentHealth(
+                            name="proxmox",
+                            status="unhealthy",
+                            detail=f"HTTP {resp.status_code}",
+                        )
+                    )
+        except Exception as exc:
+            components.append(ComponentHealth(name="proxmox", status="unhealthy", detail=str(exc)))
+
+    # --- Proxmox Backup Server (optional) ---
+    if settings.pbs_url:
+        try:
+            async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+                resp = await client.get(
+                    f"{settings.pbs_url}/api2/json/version",
+                    headers={"Authorization": f"PBSAPIToken={settings.pbs_api_token}"},
+                )
+                if resp.status_code == 200:
+                    components.append(ComponentHealth(name="pbs", status="healthy"))
+                else:
+                    components.append(
+                        ComponentHealth(
+                            name="pbs",
+                            status="unhealthy",
+                            detail=f"HTTP {resp.status_code}",
+                        )
+                    )
+        except Exception as exc:
+            components.append(ComponentHealth(name="pbs", status="unhealthy", detail=str(exc)))
+
     # --- Vector store ---
     if CHROMA_PERSIST_DIR.is_dir():
         components.append(ComponentHealth(name="vector_store", status="healthy"))

@@ -1,0 +1,117 @@
+# Tool Reference
+
+The agent has 13 tools across 5 categories. Tools are conditionally registered based on configuration.
+
+## Prometheus (always enabled)
+
+### prometheus_search_metrics
+
+Search for available Prometheus metric names matching a substring.
+
+- **Input:** `search_term` (string)
+- **Example questions:** "What MikroTik metrics are available?", "Find CPU-related metrics"
+- **Returns:** Matching metric names with type and description from metadata
+
+### prometheus_instant_query
+
+Query Prometheus for the current value of a metric (instant query).
+
+- **Input:** `query` (PromQL string), `time` (optional RFC3339/Unix timestamp)
+- **Example questions:** "What is the current CPU usage on jellyfin?", "How many VMs are running?"
+- **Returns:** Formatted metric values with labels
+
+### prometheus_range_query
+
+Query Prometheus for metric values over a time range.
+
+- **Input:** `query` (PromQL), `start`, `end` (timestamps), `step` (duration)
+- **Example questions:** "How has CPU changed over the last hour?", "Show memory usage for the past day"
+- **Returns:** Time series data with sample counts
+
+## Grafana Alerting (always enabled)
+
+### grafana_get_alerts
+
+Fetch active alerts from Grafana's alerting system.
+
+- **Input:** `state` (optional: "active", "suppressed", "unprocessed")
+- **Example questions:** "What alerts are firing?", "Are there any active alerts?"
+- **Returns:** Alert name, severity, state, labels, annotations, start time
+
+### grafana_get_alert_rules
+
+Fetch alert rule definitions from Grafana.
+
+- **Input:** none
+- **Example questions:** "What alerts are configured?", "What conditions trigger the high CPU alert?"
+- **Returns:** Rule name, UID, folder, group, severity, summary
+
+## Proxmox VE (enabled when `PROXMOX_URL` is set)
+
+### proxmox_list_guests
+
+List all VMs and containers on the Proxmox node.
+
+- **Input:** `guest_type` (optional: "qemu" or "lxc")
+- **Example questions:** "What VMs are running?", "List all containers", "How many guests are there?"
+- **Returns:** VMID, name, type (VM/CT), status, vCPUs, RAM, CPU usage
+
+### proxmox_get_guest_config
+
+Get the full configuration of a specific VM or container by VMID.
+
+- **Input:** `vmid` (integer), `guest_type` (string, default "qemu")
+- **Example questions:** "What disks does VM 100 have?", "Show the config for jellyfin"
+- **Returns:** Grouped config: compute (CPU/RAM), disks, network, boot/OS settings
+
+### proxmox_node_status
+
+Get overall status of the Proxmox host node.
+
+- **Input:** none
+- **Example questions:** "How is the Proxmox server doing?", "What PVE version is running?"
+- **Returns:** CPU%, memory, root FS, load average, uptime, PVE version, kernel
+
+### proxmox_list_tasks
+
+List recent Proxmox tasks (migrations, backups, snapshots, etc).
+
+- **Input:** `limit` (int, default 20), `errors_only` (bool, default false)
+- **Example questions:** "Any recent failed tasks?", "Is a migration running?"
+- **Returns:** Task type, status, user, start/end time, guest ID
+
+## Proxmox Backup Server (enabled when `PBS_URL` is set)
+
+### pbs_datastore_status
+
+Get storage usage for all PBS datastores.
+
+- **Input:** none
+- **Example questions:** "How much backup space is left?", "Is the backup store full?"
+- **Returns:** Datastore name, total/used/available space, usage%, last GC status
+
+### pbs_list_backups
+
+List backup groups in a PBS datastore.
+
+- **Input:** `datastore` (optional, defaults to `PBS_DEFAULT_DATASTORE`)
+- **Example questions:** "When was VM 100 last backed up?", "Which VMs are being backed up?"
+- **Returns:** Backup type (VM/CT/Host), ID, snapshot count, last backup time, owner
+
+### pbs_list_tasks
+
+List recent PBS tasks (backup jobs, GC, verification).
+
+- **Input:** `limit` (int, default 20), `errors_only` (bool, default false)
+- **Example questions:** "Did last night's backup succeed?", "Any failed backup tasks?"
+- **Returns:** Task type, status, user, start/end time, worker ID
+
+## RAG (enabled when vector store exists)
+
+### runbook_search
+
+Search operational runbooks for procedures, troubleshooting steps, and architecture docs.
+
+- **Input:** `query` (string)
+- **Example questions:** "How do I restart the DNS stack?", "What's the procedure for NFS issues?"
+- **Returns:** Relevant runbook chunks with source attribution

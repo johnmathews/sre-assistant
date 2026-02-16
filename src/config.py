@@ -12,6 +12,21 @@ class Settings(BaseSettings):
     grafana_url: str
     grafana_service_account_token: str
 
+    # Proxmox VE API (optional — empty string means not configured)
+    proxmox_url: str = ""
+    proxmox_api_token: str = ""
+    proxmox_verify_ssl: bool = False
+    proxmox_ca_cert: str = ""
+    proxmox_node: str = "proxmox"
+
+    # Proxmox Backup Server API (optional — empty string means not configured)
+    pbs_url: str = ""
+    pbs_api_token: str = ""
+    pbs_verify_ssl: bool = False
+    pbs_ca_cert: str = ""
+    pbs_node: str = "localhost"
+    pbs_default_datastore: str = ""
+
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )

@@ -5,8 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 HomeLab SRE Assistant — an AI-powered SRE assistant for homelab infrastructure built with LangChain (Python). It connects
-to live infrastructure telemetry (Prometheus, Alertmanager, Loki) and a RAG knowledge base (runbooks, Ansible playbooks,
-past incidents) to answer operational questions, explain alerts, correlate changes, and generate incident reports.
+to live infrastructure telemetry (Prometheus, Grafana, Proxmox VE, PBS) and a RAG knowledge base (runbooks, Ansible
+playbooks, past incidents) to answer operational questions, explain alerts, correlate changes, and generate incident
+reports.
 
 Target environment: Proxmox homelab with 80+ services across multiple VMs and LXCs.
 
@@ -14,8 +15,8 @@ Target environment: Proxmox homelab with 80+ services across multiple VMs and LX
 
 **Not everything is RAG.** The agent uses two distinct data access patterns:
 
-- **Live tool calls** (LangChain tools): Prometheus metrics, Grafana alerts, Loki logs — queried in real-time via
-  structured APIs
+- **Live tool calls** (LangChain tools): Prometheus metrics, Grafana alerts, Proxmox VE config, PBS backups — queried
+  in real-time via structured APIs
 - **RAG retrieval** (vector store): Runbooks, Ansible playbooks/inventory, past incident summaries — embedded in
   Chroma/FAISS
 
@@ -83,7 +84,7 @@ The `mock_settings` fixture in `tests/conftest.py` provides fake config so tests
 
 The project is built incrementally. Each phase produces a working, demonstrable system:
 
-1. **Alert Explainer** — Core LangChain agent + Prometheus/Alertmanager tools + runbook RAG + FastAPI + basic UI
+1. **Alert Explainer** — Core LangChain agent + Prometheus/Grafana/Proxmox/PBS tools + runbook RAG + FastAPI + basic UI
 2. ~~**Synthetic Incident Generator**~~ — *Shelved.* Real homelab provides adequate test signals.
 3. **Change Correlation** — Ansible log ingestion, timeline correlation between changes and alerts
 4. **SLI/SLO Dashboard** — Self-instrumentation with Prometheus metrics, Grafana dashboard for the assistant's own
@@ -91,15 +92,15 @@ The project is built incrementally. Each phase produces a working, demonstrable 
 5. **Evaluation Framework** — Automated test cases scoring tool selection, retrieval relevance, answer quality
 6. **Weekly Reliability Report** — Scheduled summarization of alerts, changes, SLO status
 
-## Planned Source Layout
+## Source Layout
 
-- `src/agent/` — LangChain agent setup, tools (prometheus, alertmanager, loki, ansible), retrieval (embeddings, runbooks,
-  ansible), memory
+- `src/agent/` — LangChain agent setup, tools (prometheus, grafana_alerts, proxmox, pbs), retrieval (embeddings,
+  runbooks), memory
 - `src/api/` — FastAPI application
 - `src/ui/` — Streamlit frontend
-- `src/eval/` — Evaluation test cases (YAML) and runner
-- `src/incidents/` — Synthetic incident generator and scenarios
-- `src/observability/` — Prometheus metric exports, cost/token tracking
+- `src/eval/` — Evaluation test cases (YAML) and runner (planned)
+- `src/observability/` — Prometheus metric exports, cost/token tracking (planned)
+- `docs/` — Design documentation (architecture, tool reference, code flow, dependencies)
 - `runbooks/` — Operational runbooks (markdown)
 - `ansible/` — Symlink/submodule to ansible home-server project
 - `dashboards/` — Grafana dashboard JSON exports
