@@ -40,8 +40,7 @@ TOOL_DESCRIPTION = (
     "(ZFS pools: tank, swift, backup), NFS share management and debugging, "
     "disk management, UPS power, Cloudflare tunnel (cloudflared — native systemd "
     "service, not Docker), MikroTik router monitoring, Tailscale VPN, Traefik "
-    "reverse proxy, systemd services, media VM, quiet hours (currently disabled), "
-    "and Mailcow (currently stopped — Gmail used instead).\n\n"
+    "reverse proxy, systemd services, media VM, and quiet hours (currently disabled).\n\n"
     "Returns relevant text chunks with source metadata. This searches static "
     "documentation — for live system state, use the Prometheus or Grafana tools instead."
 )

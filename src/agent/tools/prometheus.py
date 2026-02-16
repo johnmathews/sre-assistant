@@ -310,7 +310,7 @@ TOOL_DESCRIPTION_INSTANT = (
     "- Managed hosts (node_exporter + cadvisor): proxmox, truenas, media, infra, "
     "jellyfin, immich, prometheus, tube-archivist, paperless, open-webui\n"
     "- Network/services (dedicated exporters): mikrotik, home-assistant, unbound, "
-    "key-server, traefik, cloudflared, mailcow\n"
+    "key-server, traefik, cloudflared\n"
     "- Exporters: node_exporter (node_*), cadvisor (container_*), pve_exporter (pve_*), "
     "adguard, NUT (network_ups_tools_*), smartctl, IPMI, MikroTik (mktxp_*)\n"
     "- Recording rules: share drive probes, disk spindown, network traffic (signed bytes/sec), "

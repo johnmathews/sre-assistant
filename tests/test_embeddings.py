@@ -1,10 +1,17 @@
 """Unit tests for the embedding pipeline — chunking and document loading."""
 
+from collections.abc import Generator
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
+
+import pytest
 
 from src.agent.retrieval.embeddings import (
     _chunk_text,
+    _load_markdown_dir,
     _split_by_headings,
+    load_all_documents,
     load_runbooks,
 )
 
@@ -95,3 +102,141 @@ class TestLoadRunbooks:
         sources = {d.metadata["source"] for d in docs}
         assert "a.md" in sources
         assert "b.md" in sources
+
+
+class TestLoadMarkdownDir:
+    def test_includes_source_dir_metadata(self, tmp_path: Path) -> None:
+        subdir = tmp_path / "documentation"
+        subdir.mkdir()
+        (subdir / "guide.md").write_text("# Setup Guide\n\nSteps here.\n")
+        docs = _load_markdown_dir(subdir)
+        assert len(docs) > 0
+        assert all(d.metadata["source_dir"] == "documentation" for d in docs)
+
+    def test_source_dir_uses_directory_name(self, tmp_path: Path) -> None:
+        subdir = tmp_path / "my-docs"
+        subdir.mkdir()
+        (subdir / "notes.md").write_text("# Notes\n\nSome notes.\n")
+        docs = _load_markdown_dir(subdir)
+        assert docs[0].metadata["source_dir"] == "my-docs"
+
+
+class TestLoadAllDocuments:
+    @pytest.fixture
+    def runbooks_dir(self, tmp_path: Path) -> Path:
+        d = tmp_path / "runbooks"
+        d.mkdir()
+        (d / "dns.md").write_text("# DNS Runbook\n\nDNS content.\n")
+        return d
+
+    @pytest.fixture
+    def extra_docs_dir(self, tmp_path: Path) -> Path:
+        d = tmp_path / "documentation"
+        d.mkdir()
+        (d / "truenas.md").write_text("# TrueNAS Guide\n\nStorage info.\n")
+        (d / "tailscale.md").write_text("# Tailscale\n\nVPN config.\n")
+        return d
+
+    @pytest.fixture
+    def _patch_runbooks_dir(self, runbooks_dir: Path) -> Generator[None]:
+        with patch(
+            "src.agent.retrieval.embeddings.RUNBOOKS_DIR",
+            runbooks_dir,
+        ):
+            yield
+
+    @pytest.fixture
+    def _mock_extra_settings(self, extra_docs_dir: Path) -> Generator[Any]:
+        fake = type("FakeSettings", (), {"extra_docs_dirs": str(extra_docs_dir)})()
+        with patch(
+            "src.agent.retrieval.embeddings.get_settings",
+            return_value=fake,
+        ):
+            yield fake
+
+    @pytest.mark.usefixtures("_patch_runbooks_dir")
+    def test_loads_only_runbooks_when_no_extra_dirs(self, runbooks_dir: Path) -> None:
+        fake = type("FakeSettings", (), {"extra_docs_dirs": ""})()
+        with patch(
+            "src.agent.retrieval.embeddings.get_settings",
+            return_value=fake,
+        ):
+            docs = load_all_documents()
+        sources = {d.metadata["source"] for d in docs}
+        assert "dns.md" in sources
+        assert len(docs) >= 1
+
+    @pytest.mark.usefixtures("_patch_runbooks_dir", "_mock_extra_settings")
+    def test_loads_from_both_dirs(
+        self,
+        runbooks_dir: Path,
+        extra_docs_dir: Path,
+    ) -> None:
+        docs = load_all_documents()
+        sources = {d.metadata["source"] for d in docs}
+        assert "dns.md" in sources
+        assert "truenas.md" in sources
+        assert "tailscale.md" in sources
+
+    @pytest.mark.usefixtures("_patch_runbooks_dir", "_mock_extra_settings")
+    def test_source_dir_distinguishes_origin(
+        self,
+        runbooks_dir: Path,
+        extra_docs_dir: Path,
+    ) -> None:
+        docs = load_all_documents()
+        source_dirs = {d.metadata["source_dir"] for d in docs}
+        assert "runbooks" in source_dirs
+        assert "documentation" in source_dirs
+
+    @pytest.mark.usefixtures("_patch_runbooks_dir")
+    def test_skips_relative_paths(self, runbooks_dir: Path) -> None:
+        fake = type("FakeSettings", (), {"extra_docs_dirs": "relative/path"})()
+        with patch(
+            "src.agent.retrieval.embeddings.get_settings",
+            return_value=fake,
+        ):
+            docs = load_all_documents()
+        # Should only contain runbooks, not the relative path
+        source_dirs = {d.metadata["source_dir"] for d in docs}
+        assert source_dirs == {"runbooks"}
+
+    @pytest.mark.usefixtures("_patch_runbooks_dir")
+    def test_skips_nonexistent_extra_dir(self, tmp_path: Path) -> None:
+        fake = type(
+            "FakeSettings",
+            (),
+            {"extra_docs_dirs": str(tmp_path / "does-not-exist")},
+        )()
+        with patch(
+            "src.agent.retrieval.embeddings.get_settings",
+            return_value=fake,
+        ):
+            docs = load_all_documents()
+        source_dirs = {d.metadata["source_dir"] for d in docs}
+        assert source_dirs == {"runbooks"}
+
+    @pytest.mark.usefixtures("_patch_runbooks_dir")
+    def test_handles_multiple_comma_separated_dirs(self, tmp_path: Path) -> None:
+        dir_a = tmp_path / "docs-a"
+        dir_a.mkdir()
+        (dir_a / "a.md").write_text("# Doc A\n\nContent A.\n")
+
+        dir_b = tmp_path / "docs-b"
+        dir_b.mkdir()
+        (dir_b / "b.md").write_text("# Doc B\n\nContent B.\n")
+
+        fake = type(
+            "FakeSettings",
+            (),
+            {"extra_docs_dirs": f"{dir_a}, {dir_b}"},
+        )()
+        with patch(
+            "src.agent.retrieval.embeddings.get_settings",
+            return_value=fake,
+        ):
+            docs = load_all_documents()
+        sources = {d.metadata["source"] for d in docs}
+        assert "a.md" in sources
+        assert "b.md" in sources
+        assert "dns.md" in sources  # runbooks still present

@@ -10,7 +10,7 @@ import logging
 import shutil
 import sys
 
-from src.agent.retrieval.embeddings import CHROMA_PERSIST_DIR, build_vector_store, load_runbooks
+from src.agent.retrieval.embeddings import CHROMA_PERSIST_DIR, build_vector_store, load_all_documents
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -23,12 +23,12 @@ def main() -> None:
         logger.info("Removing existing vector store at %s", CHROMA_PERSIST_DIR)
         shutil.rmtree(CHROMA_PERSIST_DIR)
 
-    documents = load_runbooks()
+    documents = load_all_documents()
     if not documents:
-        logger.error("No runbook documents found — nothing to ingest")
+        logger.error("No documents found — nothing to ingest")
         sys.exit(1)
 
-    logger.info("Ingesting %d document chunks...", len(documents))
+    logger.info("Ingesting %d document chunks from all sources...", len(documents))
     store = build_vector_store(documents)
 
     # Verify

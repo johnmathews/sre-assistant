@@ -29,6 +29,7 @@ handling.
   - [Phase 4: SLI/SLO Dashboard \& Instrumentation](#phase-4-slislo-dashboard--instrumentation)
   - [Phase 5: Evaluation Framework](#phase-5-evaluation-framework)
   - [Phase 6: Weekly Reliability Report](#phase-6-weekly-reliability-report)
+  - [Deployment Plan](#deployment-plan)
 - [Repository Structure (Planned)](#repository-structure-planned)
 - [Non-Goals](#non-goals)
 - [License](#license)
@@ -44,9 +45,6 @@ make dev
 # Copy and fill in your API keys
 cp .env.example .env
 # Edit .env — required: OPENAI_API_KEY, PROMETHEUS_URL, GRAFANA_URL, GRAFANA_SERVICE_ACCOUNT_TOKEN
-# Optional: OPENAI_MODEL (default: gpt-4o-mini — see docs/dependencies.md for model comparison)
-# Optional: PROXMOX_URL + PROXMOX_API_TOKEN (enables VM/container config tools)
-# Optional: PBS_URL + PBS_API_TOKEN (enables backup status tools)
 
 # Build the runbook vector store (required before first use)
 make ingest
@@ -69,19 +67,16 @@ make check
 
 ### macOS Tahoe / Sequoia: Local Network Access
 
-On macOS 15+ (Sequoia) and macOS 26+ (Tahoe), Apple restricts local network access for
-processes that aren't children of a recognized terminal app. This affects `make chat` if you
-run it inside **tmux** — the agent's Prometheus/Grafana tool calls will fail with
-`[Errno 65] No route to host` because tmux runs as a daemon under `launchd`, breaking the
-terminal's local network exemption.
+On macOS 15+ (Sequoia) and macOS 26+ (Tahoe), Apple restricts local network access for processes that aren't children of
+a recognized terminal app. This affects `make chat` if you run it inside **tmux** — the agent's Prometheus/Grafana tool
+calls will fail with `[Errno 65] No route to host` because tmux runs as a daemon under `launchd`, breaking the terminal's
+local network exemption.
 
-**Workaround:** Run `make chat` directly in your terminal (kitty, iTerm, Terminal.app) without
-tmux. Apple-signed binaries (`/usr/bin/curl`, `/usr/bin/python3`) are exempt and always work,
-but Python installed via uv, pyenv, or Homebrew is not Apple-signed and inherits permissions
-from the parent process chain.
+**Workaround:** Run `make chat` directly in your terminal (kitty, iTerm, Terminal.app) without tmux. Apple-signed
+binaries (`/usr/bin/curl`, `/usr/bin/python3`) are exempt and always work, but Python installed via uv, pyenv, or
+Homebrew is not Apple-signed and inherits permissions from the parent process chain.
 
-This only affects local development on macOS. The agent runs without restrictions when deployed
-in Docker on Linux.
+This only affects local development on macOS. The agent runs without restrictions when deployed in Docker on Linux.
 
 ---
 
@@ -344,27 +339,41 @@ The project is built incrementally, with each phase producing a working, demonst
 #### Build steps
 
 1. ~~**Project scaffolding** — `pyproject.toml`, `src/` package structure, `Makefile`, `.env.example`~~
-2. ~~**Prometheus tool** — `src/agent/tools/prometheus.py`: LangChain tool wrapping Prometheus HTTP API (`/api/v1/query`, `/api/v1/query_range`). Unit and integration tests.~~
-3. ~~**Grafana alerting tool** — `src/agent/tools/grafana_alerts.py`: fetches active alerts and alert rule definitions from Grafana's alerting API (not Alertmanager — Grafana is the actual alerting system in use). Unit and integration tests.~~
-4. ~~**Runbook RAG pipeline** — 13 runbooks in `runbooks/` converted from homelab documentation, embedding pipeline (`src/agent/retrieval/embeddings.py`), retriever tool (`src/agent/retrieval/runbooks.py`), ingest script (`make ingest`). Unit tests for chunking, loading, and input validation.~~
-5. ~~**Agent assembly** — `src/agent/agent.py`: LangChain agent with all three tools. System prompt defining when to use live queries vs. RAG. Conversation memory. Test via REPL.~~
+2. ~~**Prometheus tool** — `src/agent/tools/prometheus.py`: LangChain tool wrapping Prometheus HTTP API (`/api/v1/query`,
+   `/api/v1/query_range`). Unit and integration tests.~~
+3. ~~**Grafana alerting tool** — `src/agent/tools/grafana_alerts.py`: fetches active alerts and alert rule definitions
+   from Grafana's alerting API (not Alertmanager — Grafana is the actual alerting system in use). Unit and integration
+   tests.~~
+4. ~~**Runbook RAG pipeline** — 13 runbooks in `runbooks/` converted from homelab documentation, embedding pipeline
+   (`src/agent/retrieval/embeddings.py`), retriever tool (`src/agent/retrieval/runbooks.py`), ingest script
+   (`make ingest`). Unit tests for chunking, loading, and input validation.~~
+5. ~~**Agent assembly** — `src/agent/agent.py`: LangChain agent with all three tools. System prompt defining when to use
+   live queries vs. RAG. Conversation memory. Test via REPL.~~
 6. ~~**FastAPI backend** — `src/api/main.py`: `POST /ask` (question + session ID → response), `GET /health`.~~
 7. ~~**Basic CLI** — Simple input loop calling the agent directly. Streamlit comes later.~~
 
-8. ~~**Proxmox VE tools** — `src/agent/tools/proxmox.py`: 4 tools for VM/container listing, guest config, node status, and task history. Conditional registration (only when `PROXMOX_URL` is set). Unit and integration tests.~~
-9. ~~**PBS tools** — `src/agent/tools/pbs.py`: 3 tools for datastore status, backup groups, and task history. Conditional registration (only when `PBS_URL` is set). Unit and integration tests.~~
-10. ~~**Design documentation** — `docs/architecture.md`, `docs/tool-reference.md`, `docs/code-flow.md`, `docs/dependencies.md`.~~
+8. ~~**Proxmox VE tools** — `src/agent/tools/proxmox.py`: 4 tools for VM/container listing, guest config, node status,
+   and task history. Conditional registration (only when `PROXMOX_URL` is set). Unit and integration tests.~~
+9. ~~**PBS tools** — `src/agent/tools/pbs.py`: 3 tools for datastore status, backup groups, and task history. Conditional
+   registration (only when `PBS_URL` is set). Unit and integration tests.~~
+10. ~~**Design documentation** — `docs/architecture.md`, `docs/tool-reference.md`, `docs/code-flow.md`,
+    `docs/dependencies.md`.~~
 
-**Phase 1 complete.** All build steps finished — the agent has Prometheus tools, Grafana alerting tools, Proxmox VE tools, PBS tools, runbook RAG, a system prompt with conversation memory, a FastAPI backend (`POST /ask`, `GET /health`), an interactive CLI, and design documentation. 171 tests passing.
+**Phase 1 complete.** All build steps finished — the agent has Prometheus tools, Grafana alerting tools, Proxmox VE
+tools, PBS tools, runbook RAG, a system prompt with conversation memory, a FastAPI backend (`POST /ask`, `GET /health`),
+an interactive CLI, and design documentation. 171 tests passing.
 
-### Phase 2: Synthetic Incident Generator — *Shelved*
+### Phase 2: Synthetic Incident Generator — _Shelved_
 
 - ~~Build scripts to inject load (CPU stress, disk fill, service kill)~~
 - ~~Wire them to trigger real Alertmanager alerts~~
 - ~~Create a "demo mode" that runs a synthetic incident and lets the agent investigate~~
 - ~~**Deliverable:** On-demand demo that works every time~~
 
-**Shelved.** The live homelab generates enough real incidents and patterns to demo and test the agent's reasoning. Considered three approaches (mock HTTP scenario server, tool-level interception, separate Prometheus instance) but decided the complexity isn't justified when real infrastructure provides adequate test signals. May revisit if the project needs a portable offline demo.
+**Shelved.** The live homelab generates enough real incidents and patterns to demo and test the agent's reasoning.
+Considered three approaches (mock HTTP scenario server, tool-level interception, separate Prometheus instance) but
+decided the complexity isn't justified when real infrastructure provides adequate test signals. May revisit if the
+project needs a portable offline demo.
 
 ### Phase 3: Change Correlation
 
@@ -391,6 +400,35 @@ The project is built incrementally, with each phase producing a working, demonst
 - Scheduled summarization of the past week's alerts, changes, and SLO status
 - Output as a markdown report
 - **Deliverable:** Automated weekly report generation
+
+### Deployment Plan
+
+The agent will be deployed as Docker containers on the Infra VM. The deployment strategy uses Ansible templates
+to keep sensitive data (internal IPs, hostnames, SSH usernames, API tokens) out of this public repository.
+
+**Architecture:**
+- `docker-compose.yml` — template in the Ansible role, rendered at deploy time with vault-encrypted variables
+- `.env` — generated by Ansible from `templates/env.j2`, never committed
+- Runbooks — Ansible copies and templates the `runbooks/` directory, substituting real IPs/hostnames from inventory vars
+
+**Why Ansible templates:**
+- Runbooks in this repo use real infrastructure details (IPs, usernames, service topology) that the RAG agent needs for
+  accurate answers
+- Rather than sanitizing runbooks (which reduces agent quality) or committing secrets (which is unsafe), Ansible templates
+  let the repo contain placeholder patterns while the deployed instance gets real values
+- Secrets (API tokens, keys) are managed via Ansible Vault, consistent with the rest of the homelab infrastructure
+
+**Containers:**
+- `sre-api` — FastAPI backend (`make serve`)
+- `sre-ui` — Streamlit frontend (`make ui`)
+- `sre-ingest` — one-shot container that rebuilds the vector store (`make ingest`)
+
+**Networking:**
+- All containers on the same Docker network with access to Prometheus, Grafana, Proxmox VE, and PBS on the local network
+- No macOS local network permission issues (Linux host)
+- Traefik reverse proxy for external HTTPS access
+
+See [docs/architecture.md](docs/architecture.md) for more detail.
 
 ---
 

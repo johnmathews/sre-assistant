@@ -68,15 +68,20 @@ def _chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
 
 
 def load_runbooks(runbooks_dir: Path | None = None) -> list[Document]:
-    """Load and chunk all markdown runbooks into LangChain Documents.
+    """Load and chunk all markdown files from a single directory.
 
     Each document gets metadata with the source filename and section heading.
     """
     directory = runbooks_dir or RUNBOOKS_DIR
+    return _load_markdown_dir(directory)
+
+
+def _load_markdown_dir(directory: Path) -> list[Document]:
+    """Load and chunk all markdown files from a directory into LangChain Documents."""
     documents: list[Document] = []
 
     if not directory.exists():
-        logger.warning("Runbooks directory not found: %s", directory)
+        logger.warning("Document directory not found: %s", directory)
         return documents
 
     md_files = sorted(directory.glob("*.md"))
@@ -84,12 +89,14 @@ def load_runbooks(runbooks_dir: Path | None = None) -> list[Document]:
         logger.warning("No markdown files found in %s", directory)
         return documents
 
+    source_dir = directory.name
+
     for md_file in md_files:
         text = md_file.read_text(encoding="utf-8")
-        runbook_name = md_file.stem
+        doc_name = md_file.stem
 
         # Extract title from first H1
-        title = runbook_name
+        title = doc_name
         for line in text.splitlines():
             if line.startswith("# "):
                 title = line[2:].strip()
@@ -114,7 +121,8 @@ def load_runbooks(runbooks_dir: Path | None = None) -> list[Document]:
                         page_content=chunk,
                         metadata={
                             "source": md_file.name,
-                            "runbook": runbook_name,
+                            "source_dir": source_dir,
+                            "runbook": doc_name,
                             "title": title,
                             "section": section_heading,
                             "chunk_index": i,
@@ -122,7 +130,46 @@ def load_runbooks(runbooks_dir: Path | None = None) -> list[Document]:
                     )
                 )
 
-    logger.info("Loaded %d chunks from %d runbook files", len(documents), len(md_files))
+    logger.info(
+        "Loaded %d chunks from %d files in %s",
+        len(documents),
+        len(md_files),
+        directory,
+    )
+    return documents
+
+
+def load_all_documents() -> list[Document]:
+    """Load documents from runbooks/ and any extra directories configured in settings.
+
+    Extra directories are specified via the EXTRA_DOCS_DIRS environment variable
+    as comma-separated absolute paths. Each directory is read-only — only .md files
+    are read via Path.read_text().
+
+    Returns:
+        Combined list of Documents from all configured directories.
+    """
+    documents = _load_markdown_dir(RUNBOOKS_DIR)
+
+    try:
+        settings = get_settings()
+        extra_dirs_raw = settings.extra_docs_dirs
+    except Exception:
+        logger.debug("Settings not available — skipping extra document directories")
+        extra_dirs_raw = ""
+
+    if extra_dirs_raw.strip():
+        for raw_path in extra_dirs_raw.split(","):
+            dir_path = Path(raw_path.strip())
+            if not dir_path.is_absolute():
+                logger.warning("Skipping non-absolute path: %s", dir_path)
+                continue
+            if not dir_path.is_dir():
+                logger.warning("Skipping non-existent directory: %s", dir_path)
+                continue
+            documents.extend(_load_markdown_dir(dir_path))
+
+    logger.info("Total documents loaded from all sources: %d", len(documents))
     return documents
 
 
