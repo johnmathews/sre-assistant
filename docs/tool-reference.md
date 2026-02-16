@@ -1,6 +1,6 @@
 # Tool Reference
 
-The agent has 13 tools across 5 categories. Tools are conditionally registered based on configuration.
+The agent has up to 16 tools across 6 categories. Tools are conditionally registered based on configuration.
 
 ## Prometheus (always enabled)
 
@@ -45,6 +45,32 @@ Fetch alert rule definitions from Grafana.
 - **Input:** none
 - **Example questions:** "What alerts are configured?", "What conditions trigger the high CPU alert?"
 - **Returns:** Rule name, UID, folder, group, severity, summary
+
+## Loki (enabled when `LOKI_URL` is set)
+
+### loki_query_logs
+
+Query Loki for log lines using LogQL.
+
+- **Input:** `query` (LogQL string), `start` (relative like "1h" or ISO timestamp, default "1h"), `end` (relative or ISO, default "now"), `limit` (int, default 100, max 1000), `direction` ("forward" or "backward", default "backward")
+- **Example questions:** "Show me recent logs from traefik", "What errors occurred on the media VM in the last 6 hours?"
+- **Returns:** Formatted log lines with timestamps, stream labels, and log text
+
+### loki_list_label_values
+
+List available values for a Loki label.
+
+- **Input:** `label` (string, e.g. "hostname", "service_name"), `query` (optional LogQL stream selector to scope results)
+- **Example questions:** "What services are running on the infra VM?", "What hostnames send logs?"
+- **Returns:** Sorted list of values for the given label
+
+### loki_correlate_changes
+
+Search for significant log events around a reference time for change correlation.
+
+- **Input:** `reference_time` (ISO timestamp or "now"), `window_minutes` (int, default 30), `hostname` (optional filter), `service_name` (optional filter)
+- **Example questions:** "What changed before this alert fired?", "Show me what happened around 2pm on the infra VM"
+- **Returns:** Chronological timeline of error/warn/fatal events and container lifecycle events, grouped by service
 
 ## Proxmox VE (enabled when `PROXMOX_URL` is set)
 

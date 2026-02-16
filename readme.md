@@ -377,9 +377,28 @@ project needs a portable offline demo.
 
 ### Phase 3: Change Correlation
 
-- Add Ansible log ingestion as a tool (recent playbook runs, changed tasks)
+- Add Loki log query tools for general-purpose log access
 - Implement timeline correlation between changes and alert state transitions
 - **Deliverable:** "What changed before this alert?" produces a correlated timeline
+
+#### Build steps
+
+1. ~~**Config plumbing** — Add `LOKI_URL` to Settings, `.env.example`, and test fixtures~~
+2. ~~**`loki_query_logs` tool** — General-purpose LogQL query with relative time parsing, limit handling, and formatted
+   output. Unit and integration tests.~~
+3. ~~**`loki_list_label_values` tool** — Label discovery for hostnames, services, containers, and log levels. Integration
+   tests.~~
+4. ~~**`loki_correlate_changes` tool** — Higher-level change correlation: searches for error/warn/fatal spikes and
+   container lifecycle events around a reference time, returns a chronological timeline grouped by service. Unit tests
+   for timeline building, integration tests with multiple mocked queries.~~
+5. ~~**Agent integration** — Loki section in system prompt (labels, LogQL tips, when to use each tool), conditional tool
+   registration, health check (`GET /ready`).~~
+6. ~~**Documentation** — `runbooks/loki-logging.md` (Alloy pipeline, labels, LogQL reference), updated tool reference,
+   updated readme build steps.~~
+
+**Phase 3 complete.** All build steps finished — the agent has 3 Loki tools (query logs, list label values, correlate
+changes), conditional registration when `LOKI_URL` is set, a health check, system prompt guidance for LogQL queries,
+and documentation. 230 tests passing.
 
 ### Phase 4: SLI/SLO Dashboard & Instrumentation
 
@@ -446,7 +465,7 @@ homelab-sre-assistant/
 │   │   │   ├── grafana_alerts.py # Grafana alerting tools (2)
 │   │   │   ├── proxmox.py        # Proxmox VE tools (4, optional)
 │   │   │   ├── pbs.py            # PBS backup tools (3, optional)
-│   │   │   ├── loki.py           # Log query tool (planned)
+│   │   │   ├── loki.py           # Loki log query tools (3, optional)
 │   │   │   └── ansible.py        # Ansible log tool (planned)
 │   │   ├── retrieval/
 │   │   │   ├── embeddings.py     # Document embedding pipeline
@@ -464,7 +483,7 @@ homelab-sre-assistant/
 │       └── cost_tracker.py       # Token usage and cost tracking (planned)
 ├── docs/                         # Design documentation
 │   ├── architecture.md           # System overview, data flow, service dependencies
-│   ├── tool-reference.md         # All 13 tools with inputs and examples
+│   ├── tool-reference.md         # All 16 tools with inputs and examples
 │   ├── code-flow.md              # Request lifecycle, tool registration, settings
 │   └── dependencies.md           # Python packages, external services, auth setup
 ├── runbooks/                     # Operational runbooks (markdown)

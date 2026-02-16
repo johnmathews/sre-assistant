@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     proxmox_ca_cert: str = ""
     proxmox_node: str = "proxmox"
 
+    # Loki API (optional — empty string means not configured)
+    loki_url: str = ""
+
     # Extra document directories for RAG ingestion (comma-separated absolute paths)
     extra_docs_dirs: str = ""
 

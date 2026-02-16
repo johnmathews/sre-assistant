@@ -12,6 +12,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from pydantic import SecretStr
 
 from src.agent.tools.grafana_alerts import grafana_get_alert_rules, grafana_get_alerts
+from src.agent.tools.loki import loki_correlate_changes, loki_list_label_values, loki_query_logs
 from src.agent.tools.pbs import pbs_datastore_status, pbs_list_backups, pbs_list_tasks
 from src.agent.tools.prometheus import (
     prometheus_instant_query,
@@ -57,6 +58,11 @@ You have access to live infrastructure tools and a knowledge base of operational
 - `pbs_datastore_status` — backup storage usage across datastores
 - `pbs_list_backups` — backup groups showing last backup time and snapshot count per guest
 - `pbs_list_tasks` — recent PBS tasks (backup jobs, GC, verification)
+
+**For logs** (application logs, errors, container lifecycle events):
+- `loki_query_logs` — query log lines using LogQL (general-purpose log search)
+- `loki_list_label_values` — discover available hostnames, services, containers, log levels
+- `loki_correlate_changes` — find significant events around a reference time (change correlation)
 
 **For operational knowledge** (how things work, how to fix them, architecture):
 - `runbook_search` — search runbooks for procedures, troubleshooting steps, architecture docs
@@ -111,6 +117,32 @@ Use these patterns when constructing Prometheus queries:
 `pve_memory_usage_bytes`, `pve_disk_usage_bytes`, `pve_up`)
 - `mktxp_*` — MikroTik router metrics
 
+## Loki Log Querying
+
+Logs are collected by Alloy from Docker containers and some systemd journal units, shipped to Loki.
+
+**Available labels (every log stream has these 4):**
+- `hostname` — the VM/LXC name (same as Prometheus hostname label)
+- `service_name` — Docker service or systemd unit name
+- `container` — Docker container name
+- `detected_level` — normalized log level: debug, info, notice, warn, error, fatal, verbose, trace
+
+**When to use Loki tools vs Prometheus:**
+- **Loki** = text logs, error messages, application output, container lifecycle events
+- **Prometheus** = numeric metrics, rates, aggregations, time-series trends
+
+**LogQL tips:**
+- Always include at least one label filter: `{hostname="media"}` not `{}`
+- Use `|=` for substring match: `{service_name="traefik"} |= "502"`
+- Use `|~` for regex: `{hostname="infra"} |~ "(?i)error"`
+- Use `detected_level` to filter by severity: `{detected_level=~"error|warn"}`
+- Start with `loki_list_label_values` to discover what services/hosts exist before querying
+
+**When to use `loki_correlate_changes`:**
+- "What changed before this alert?" — pass the alert's firing time as reference_time
+- "What happened around 2pm?" — pass the ISO timestamp
+- "Show me what went wrong on infra" — use hostname filter with reference_time="now"
+
 ## Guidelines
 
 - When unsure of a metric name, **search first** with `prometheus_search_metrics` to discover \
@@ -150,6 +182,18 @@ def _get_tools() -> list[BaseTool]:
         )
     else:
         logger.info("Proxmox VE tools disabled — PROXMOX_URL not set")
+
+    # Loki log tools — only if configured
+    if settings.loki_url:
+        tools.extend(
+            [
+                loki_query_logs,
+                loki_list_label_values,
+                loki_correlate_changes,
+            ]
+        )
+    else:
+        logger.info("Loki tools disabled — LOKI_URL not set")
 
     # Proxmox Backup Server tools — only if configured
     if settings.pbs_url:

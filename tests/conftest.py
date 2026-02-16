@@ -52,6 +52,7 @@ def mock_settings() -> Generator[Any]:
             "pbs_ca_cert": "",
             "pbs_node": "localhost",
             "pbs_default_datastore": "backups",
+            "loki_url": "http://loki.test:3100",
         },
     )()
     with (
@@ -60,6 +61,7 @@ def mock_settings() -> Generator[Any]:
         patch("src.agent.tools.grafana_alerts.get_settings", return_value=fake_settings),
         patch("src.agent.tools.proxmox.get_settings", return_value=fake_settings),
         patch("src.agent.tools.pbs.get_settings", return_value=fake_settings),
+        patch("src.agent.tools.loki.get_settings", return_value=fake_settings),
         patch("src.agent.agent.get_settings", return_value=fake_settings),
         patch("src.agent.retrieval.embeddings.get_settings", return_value=fake_settings),
         patch("src.api.main.get_settings", return_value=fake_settings),

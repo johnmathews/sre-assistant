@@ -143,6 +143,24 @@ async def health() -> HealthResponse:
     except Exception as exc:
         components.append(ComponentHealth(name="grafana", status="unhealthy", detail=str(exc)))
 
+    # --- Loki (optional) ---
+    if settings.loki_url:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{settings.loki_url}/ready")
+                if resp.status_code == 200:
+                    components.append(ComponentHealth(name="loki", status="healthy"))
+                else:
+                    components.append(
+                        ComponentHealth(
+                            name="loki",
+                            status="unhealthy",
+                            detail=f"HTTP {resp.status_code}",
+                        )
+                    )
+        except Exception as exc:
+            components.append(ComponentHealth(name="loki", status="unhealthy", detail=str(exc)))
+
     # --- Proxmox VE (optional) ---
     if settings.proxmox_url:
         try:
