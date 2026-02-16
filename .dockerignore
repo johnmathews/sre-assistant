@@ -1,0 +1,33 @@
+# Version control
+.git/
+
+# Virtual environments
+.venv/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Vector store (rebuilt by sre-ingest)
+.chroma_db/
+
+# Secrets
+.env
+
+# Tests and docs (not needed at runtime)
+tests/
+docs/
+
+# CI/CD
+.github/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store

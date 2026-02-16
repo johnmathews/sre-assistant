@@ -1,0 +1,42 @@
+# Local dev / reference docker-compose.
+# Production deployment on the Infra VM uses an Ansible-templated compose file.
+
+services:
+  sre-ingest:
+    build: .
+    command: ["python", "-m", "scripts.ingest_runbooks"]
+    env_file: .env
+    volumes:
+      - chroma_data:/app/.chroma_db
+
+  sre-api:
+    build: .
+    # Default CMD from Dockerfile (uvicorn)
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - chroma_data:/app/.chroma_db
+    depends_on:
+      sre-ingest:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  sre-ui:
+    build: .
+    command: ["streamlit", "run", "src/ui/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://sre-api:8000
+    depends_on:
+      sre-api:
+        condition: service_healthy
+
+volumes:
+  chroma_data:

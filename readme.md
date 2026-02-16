@@ -11,6 +11,8 @@ handling.
 
 - [Getting Started](#getting-started)
   - [macOS Tahoe / Sequoia: Local Network Access](#macos-tahoe--sequoia-local-network-access)
+- [Docker](#docker)
+- [CI/CD](#cicd)
 - [Motivation \& Context](#motivation--context)
 - [Goals](#goals)
 - [What It Should Achieve](#what-it-should-achieve)
@@ -77,6 +79,57 @@ binaries (`/usr/bin/curl`, `/usr/bin/python3`) are exempt and always work, but P
 Homebrew is not Apple-signed and inherits permissions from the parent process chain.
 
 This only affects local development on macOS. The agent runs without restrictions when deployed in Docker on Linux.
+
+---
+
+## Docker
+
+The project builds a single Docker image that runs as three services: API, UI, and ingest (vector store builder).
+
+```bash
+# Build the image
+make docker-build
+
+# Start all services (ingest runs first, then API on :8000, then UI on :8501)
+make docker-up
+
+# Stop services
+make docker-down
+```
+
+The `docker-compose.yml` in this repo is for local testing. Production deployment on the Infra VM uses an
+Ansible-templated compose file that injects real secrets and network configuration.
+
+**Services:**
+
+| Service      | Port  | Description                                  |
+| ------------ | ----- | -------------------------------------------- |
+| `sre-ingest` | —     | One-shot: builds the Chroma vector store     |
+| `sre-api`    | 8000  | FastAPI backend (`/ask`, `/health`)          |
+| `sre-ui`     | 8501  | Streamlit web UI                             |
+
+The ingest service writes to a shared `chroma_data` volume. The API service reads from it. The UI service
+communicates with the API via the internal Docker network (`API_URL=http://sre-api:8000`).
+
+---
+
+## CI/CD
+
+**GitHub Actions** runs two workflows:
+
+1. **CI** (`.github/workflows/ci.yml`) — Runs `make check` (lint + typecheck + tests) on every push to `main` and
+   on pull requests. Fast feedback on every change.
+
+2. **Build** (`.github/workflows/build.yml`) — On pushes to `main` only: builds the Docker image and pushes to
+   `ghcr.io/johnmathews/sre-assistant:latest` (and `:sha-<commit>`). Only runs after CI passes.
+
+**Pre-push hook** — Install a local git hook that runs `make check` before allowing pushes:
+
+```bash
+make hooks
+```
+
+This blocks pushes if lint, typecheck, or tests fail — catching issues before they reach CI.
 
 ---
 
