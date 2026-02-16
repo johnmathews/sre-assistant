@@ -111,17 +111,16 @@ volume:
     env_file: .env
     volumes:
       - chroma_data:/app/.chroma_db
+    profiles: ["setup"]
 
   sre-api:
     image: ghcr.io/johnmathews/sre-assistant:latest
     ports:
       - "8000:8000"
     env_file: .env
+    restart: unless-stopped
     volumes:
       - chroma_data:/app/.chroma_db
-    depends_on:
-      sre-ingest:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
       interval: 30s
@@ -134,6 +133,7 @@ volume:
     command: ["streamlit", "run", "src/ui/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
     ports:
       - "8501:8501"
+    restart: unless-stopped
     environment:
       - API_URL=http://sre-api:8000
     depends_on:
@@ -145,11 +145,18 @@ volumes:
   chroma_data:
 ```
 
-Then create a `.env` file alongside your compose file (see [Environment Variables](#environment-variables) below) and
-bring the services up:
+The `sre-ingest` service is under the `setup` profile — it won't run during normal `docker compose up`. You run it
+explicitly before first use and after runbook changes (see [Vector Store Persistence](#vector-store-persistence)).
+
+Create a `.env` file alongside your compose file (see [Environment Variables](#environment-variables) below), then
+build the vector store and start the services:
 
 ```bash
-docker compose up -d sre-ingest sre-api sre-ui
+# First time: build the vector store
+docker compose run --rm sre-ingest
+
+# Start the API and UI
+docker compose up -d sre-api sre-ui
 ```
 
 ### Environment Variables

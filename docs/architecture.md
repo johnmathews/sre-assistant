@@ -123,99 +123,29 @@ A single Docker image (multi-stage build, `python:3.13-slim`) contains all three
 ```
 docker-compose.yml
   |
-  +-- sre-ingest (one-shot)
+  +-- sre-ingest (one-shot, "setup" profile)
   |     CMD: python -m scripts.ingest_runbooks
   |     Volumes: chroma_data:/app/.chroma_db
-  |     Runs first, exits when done
+  |     Run manually before first use and after runbook changes
   |
   +-- sre-api (FastAPI backend)
   |     CMD: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
   |     Port: 8000
   |     Volumes: chroma_data:/app/.chroma_db
-  |     Starts after ingest completes successfully
+  |     restart: unless-stopped
   |
   +-- sre-ui (Streamlit frontend)
         CMD: streamlit run src/ui/app.py --server.port 8501 --server.address 0.0.0.0
         Port: 8501
         Env: API_URL=http://sre-api:8000
-        Starts after api is healthy
+        restart: unless-stopped, starts after api is healthy
 ```
 
-### Docker Compose Setup
+The `sre-ingest` service is under the `setup` profile — it won't run during normal `docker compose up`.
+Run it explicitly with `docker compose run --rm sre-ingest`.
 
-**Prerequisites:** Docker and Docker Compose installed. A `.env` file with API keys (see `.env.example`).
-
-**Option A — Build from source:**
-
-```bash
-git clone https://github.com/johnmathews/sre-assistant.git
-cd sre-assistant
-cp .env.example .env
-# Edit .env with real values
-docker compose up -d
-```
-
-**Option B — Use the pre-built image from ghcr.io:**
-
-Create a `docker-compose.yml` that references the published image:
-
-```yaml
-services:
-  sre-ingest:
-    image: ghcr.io/johnmathews/sre-assistant:latest
-    command: ["python", "-m", "scripts.ingest_runbooks"]
-    env_file: .env
-    volumes:
-      - chroma_data:/app/.chroma_db
-
-  sre-api:
-    image: ghcr.io/johnmathews/sre-assistant:latest
-    ports:
-      - "8000:8000"
-    env_file: .env
-    volumes:
-      - chroma_data:/app/.chroma_db
-    depends_on:
-      sre-ingest:
-        condition: service_completed_successfully
-
-  sre-ui:
-    image: ghcr.io/johnmathews/sre-assistant:latest
-    command: ["streamlit", "run", "src/ui/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
-    ports:
-      - "8501:8501"
-    environment:
-      - API_URL=http://sre-api:8000
-    depends_on:
-      - sre-api
-
-volumes:
-  chroma_data:
-```
-
-Then create a `.env` file (see `.env.example` for required variables) and run `docker compose up -d`.
-
-**Verify it's working:**
-
-```bash
-# Check all containers are running
-docker compose ps
-
-# Check API health
-curl http://localhost:8000/health
-
-# View logs
-docker compose logs -f sre-api
-
-# Open the web UI
-open http://localhost:8501
-```
-
-**Re-ingest runbooks** (e.g. after updating runbook content):
-
-```bash
-docker compose run --rm sre-ingest
-```
+See the [README — Deploying with Docker](../readme.md#deploying-with-docker) for full setup instructions
+including how to merge into an existing compose stack.
 
 ### Networking
 
