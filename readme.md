@@ -86,30 +86,87 @@ This only affects local development on macOS. The agent runs without restriction
 
 The project builds a single Docker image that runs as three services: API, UI, and ingest (vector store builder).
 
-```bash
-# Build the image
-make docker-build
-
-# Start all services (ingest runs first, then API on :8000, then UI on :8501)
-make docker-up
-
-# Stop services
-make docker-down
-```
-
-The `docker-compose.yml` in this repo is for local testing. Production deployment on the Infra VM uses an
-Ansible-templated compose file that injects real secrets and network configuration.
-
-**Services:**
-
 | Service      | Port  | Description                                  |
 | ------------ | ----- | -------------------------------------------- |
 | `sre-ingest` | —     | One-shot: builds the Chroma vector store     |
 | `sre-api`    | 8000  | FastAPI backend (`/ask`, `/health`)          |
 | `sre-ui`     | 8501  | Streamlit web UI                             |
 
-The ingest service writes to a shared `chroma_data` volume. The API service reads from it. The UI service
-communicates with the API via the internal Docker network (`API_URL=http://sre-api:8000`).
+### Quick Start with Docker Compose
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/johnmathews/sre-assistant.git
+cd sre-assistant
+
+# 2. Create a .env file with your API keys
+cp .env.example .env
+# Edit .env — at minimum set OPENAI_API_KEY, PROMETHEUS_URL, GRAFANA_URL,
+# and GRAFANA_SERVICE_ACCOUNT_TOKEN
+
+# 3. Build and start all services
+docker compose up -d
+
+# This runs three containers in order:
+#   sre-ingest  — builds the vector store from runbooks/ (one-shot, exits when done)
+#   sre-api     — starts after ingest completes, serves FastAPI on :8000
+#   sre-ui      — starts after api is healthy, serves Streamlit on :8501
+```
+
+Once running:
+- **Web UI:** http://localhost:8501
+- **API:** http://localhost:8000/health (health check), POST http://localhost:8000/ask
+- **Logs:** `docker compose logs -f sre-api`
+
+To stop: `docker compose down`
+
+To rebuild after code changes: `docker compose build && docker compose up -d`
+
+### Using the Pre-built Image
+
+Instead of building locally, you can pull the image from GitHub Container Registry:
+
+```yaml
+# docker-compose.yml
+services:
+  sre-ingest:
+    image: ghcr.io/johnmathews/sre-assistant:latest
+    command: ["python", "-m", "scripts.ingest_runbooks"]
+    env_file: .env
+    volumes:
+      - chroma_data:/app/.chroma_db
+
+  sre-api:
+    image: ghcr.io/johnmathews/sre-assistant:latest
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - chroma_data:/app/.chroma_db
+    depends_on:
+      sre-ingest:
+        condition: service_completed_successfully
+
+  sre-ui:
+    image: ghcr.io/johnmathews/sre-assistant:latest
+    command: ["streamlit", "run", "src/ui/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://sre-api:8000
+    depends_on:
+      - sre-api
+
+volumes:
+  chroma_data:
+```
+
+The ingest service writes to a shared `chroma_data` volume. The API reads from it. The UI talks to the API
+via the internal Docker network (`API_URL=http://sre-api:8000`).
+
+The `docker-compose.yml` in this repo is for local development. Production deployment on the Infra VM uses
+an Ansible-templated compose file that injects real secrets and network configuration. See
+[docs/architecture.md](docs/architecture.md) for details.
 
 ---
 
