@@ -115,13 +115,11 @@ communicates with the API via the internal Docker network (`API_URL=http://sre-a
 
 ## CI/CD
 
-**GitHub Actions** runs two workflows:
+A single **GitHub Actions** workflow (`.github/workflows/ci.yml`) handles everything:
 
-1. **CI** (`.github/workflows/ci.yml`) — Runs `make check` (lint + typecheck + tests) on every push to `main` and
-   on pull requests. Fast feedback on every change.
-
-2. **Build** (`.github/workflows/build.yml`) — On pushes to `main` only: builds the Docker image and pushes to
-   `ghcr.io/johnmathews/sre-assistant:latest` (and `:sha-<commit>`). Only runs after CI passes.
+1. **Check** — Runs `make check` (lint + typecheck + tests) on every push to `main` and on pull requests.
+2. **Build** — On pushes to `main` only: builds the Docker image and pushes to
+   `ghcr.io/johnmathews/sre-assistant:latest` (and `:sha-<commit>`). Only runs after check passes.
 
 **Pre-push hook** — Install a local git hook that runs `make check` before allowing pushes:
 
