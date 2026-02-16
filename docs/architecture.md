@@ -16,20 +16,20 @@ The agent uses two distinct data access patterns:
                          |
                   LangChain Agent
                    (tool router)
-                    /    |    \
-                   /     |     \
-    Live Tool Calls    RAG       Proxmox APIs
-         |           Retrieval      |
-         v              |           v
-  +-----------+         v     +-----------+
-  |Prometheus |   +---------+ |Proxmox VE |
-  |  (metrics)|   | Chroma  | |  (config) |
-  +-----------+   | Vector  | +-----------+
-  +-----------+   |  Store  | +-----------+
-  |  Grafana  |   +---------+ |   PBS     |
-  | (alerts)  |       |       | (backups) |
-  +-----------+   Runbooks    +-----------+
-                  Playbooks
+                /    |    |    \
+               /     |    |     \
+  Live Metrics    Logs   RAG    Infrastructure
+       |           |   Retrieval     |
+       v           v      |         v
++-----------+ +------+    v    +-----------+
+|Prometheus | | Loki | +-----+ |Proxmox VE |
+| (metrics) | |(logs)| |Chroma| | (config)  |
++-----------+ +------+ |Vector| +-----------+
++-----------+           |Store | +-----------+
+|  Grafana  |           +-----+ |    PBS    |
+| (alerts)  |             |     | (backups) |
++-----------+          Runbooks +-----------+
+                       Playbooks
 ```
 
 ### Live Tool Calls
@@ -38,6 +38,7 @@ Structured API queries executed in real-time. Used for questions about current s
 
 - **Prometheus** (`prometheus_*` tools) — metrics: CPU, memory, disk, network, custom exporters
 - **Grafana** (`grafana_*` tools) — alert states, alert rule definitions
+- **Loki** (`loki_*` tools) — application logs, error search, change correlation timelines
 - **Proxmox VE** (`proxmox_*` tools) — VM/container config, node status, tasks
 - **PBS** (`pbs_*` tools) — backup storage, backup groups, backup tasks
 
@@ -61,6 +62,8 @@ HomeLab SRE Assistant
   |
   +-- Grafana (alerting API, unified alerting)
   |
+  +-- Loki (optional — log aggregation, collected by Alloy)
+  |
   +-- Proxmox VE API (optional — VM/container management)
   |
   +-- Proxmox Backup Server API (optional — backup status)
@@ -69,7 +72,7 @@ HomeLab SRE Assistant
 ```
 
 Required: OpenAI API, Prometheus, Grafana.
-Optional: Proxmox VE, PBS (tools are conditionally registered based on config).
+Optional: Loki, Proxmox VE, PBS (tools are conditionally registered based on config).
 Local: Chroma vector store (rebuilt via `make ingest`).
 
 ## Request Lifecycle
@@ -90,7 +93,7 @@ the agent to report failures gracefully to the user.
 ## Configuration
 
 Settings are loaded from environment variables via `pydantic-settings`. The `Settings` class in `src/config.py` defines
-all configuration with sensible defaults. Optional integrations (Proxmox VE, PBS) default to empty strings, which
+all configuration with sensible defaults. Optional integrations (Loki, Proxmox VE, PBS) default to empty strings, which
 disables their tools.
 
 ## Deployment Plan

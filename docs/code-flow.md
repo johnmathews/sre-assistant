@@ -68,6 +68,7 @@ Always included:
   - grafana_get_alerts, grafana_get_alert_rules
 
 Conditional (config-dependent):
+  - loki_* tools     (if LOKI_URL is set)
   - proxmox_* tools  (if PROXMOX_URL is set)
   - pbs_* tools      (if PBS_URL is set)
   - runbook_search   (if vector store directory exists)
@@ -81,7 +82,7 @@ Conditional (config-dependent):
 get_settings() -> Settings()  [cached via @lru_cache]
   1. Reads .env file
   2. Validates required fields (openai_api_key, prometheus_url, grafana_url, grafana_service_account_token)
-  3. Optional fields default to empty string (proxmox_url, pbs_url, etc.)
+  3. Optional fields default to empty string (loki_url, proxmox_url, pbs_url, etc.)
   4. Returns singleton Settings instance
 ```
 
@@ -94,8 +95,9 @@ at every import site.
 
 1. Prometheus — `GET /-/healthy`
 2. Grafana — `GET /api/health` with auth header
-3. Proxmox VE (if configured) — `GET /api2/json/version` with API token
-4. PBS (if configured) — `GET /api2/json/version` with API token
-5. Vector store — checks if `chroma_db/` directory exists
+3. Loki (if configured) — `GET /ready`
+4. Proxmox VE (if configured) — `GET /api2/json/version` with API token
+5. PBS (if configured) — `GET /api2/json/version` with API token
+6. Vector store — checks if `chroma_db/` directory exists
 
 Returns overall status: "healthy" (all OK), "degraded" (some failing), "unhealthy" (all failing).
