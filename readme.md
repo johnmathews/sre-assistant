@@ -1,9 +1,8 @@
 # HomeLab SRE Assistant
 
-An AI-powered Site Reliability Engineering assistant for homelab infrastructure, built with LangChain. It ingests real
-telemetry, runbooks, and infrastructure-as-code to answer operational questions, explain alerts, correlate changes, and
-generate incident reports — all while treating itself as a production service with its own SLIs, SLOs, and failure
-handling.
+An AI-powered Site Reliability Engineering assistant for homelab infrastructure, built with LangChain. It connects to
+live infrastructure telemetry (Prometheus, Grafana, Loki, Proxmox VE, PBS) and a RAG knowledge base (runbooks, Ansible
+playbooks) to answer operational questions, explain alerts, correlate changes, and generate incident reports.
 
 ---
 
@@ -11,28 +10,31 @@ handling.
 
 - [Getting Started](#getting-started)
   - [macOS Tahoe / Sequoia: Local Network Access](#macos-tahoe--sequoia-local-network-access)
-- [Docker](#docker)
+- [Deploying with Docker](#deploying-with-docker)
+  - [Adding to an Existing Docker Compose Stack](#adding-to-an-existing-docker-compose-stack)
+  - [Environment Variables](#environment-variables)
+  - [Networking](#networking)
+  - [Vector Store Persistence](#vector-store-persistence)
+  - [Updating](#updating)
+  - [Building from Source](#building-from-source)
 - [CI/CD](#cicd)
 - [Motivation \& Context](#motivation--context)
 - [Goals](#goals)
-- [What It Should Achieve](#what-it-should-achieve)
 - [Architecture](#architecture)
+- [Current Capabilities](#current-capabilities)
 - [Use Cases](#use-cases)
-- [SLIs/SLOs About Itself](#slisslos-about-itself)
 - [Failure Modes \& Handling](#failure-modes--handling)
-- [Evaluation Framework](#evaluation-framework)
 - [Conversation Memory](#conversation-memory)
-- [Cost Awareness](#cost-awareness)
 - [Tech Stack](#tech-stack)
+- [Roadmap](#roadmap)
 - [Build Order](#build-order)
   - [Phase 1: Alert Explainer (Core Agent)](#phase-1-alert-explainer-core-agent)
   - [Phase 2: Synthetic Incident Generator](#phase-2-synthetic-incident-generator)
-  - [Phase 3: Change Correlation](#phase-3-change-correlation)
+  - [Phase 3: Loki Log Tools](#phase-3-loki-log-tools)
   - [Phase 4: SLI/SLO Dashboard \& Instrumentation](#phase-4-slislo-dashboard--instrumentation)
   - [Phase 5: Evaluation Framework](#phase-5-evaluation-framework)
   - [Phase 6: Weekly Reliability Report](#phase-6-weekly-reliability-report)
-  - [Deployment Plan](#deployment-plan)
-- [Repository Structure (Planned)](#repository-structure-planned)
+- [Repository Structure](#repository-structure)
 - [Non-Goals](#non-goals)
 - [License](#license)
 
@@ -82,53 +84,27 @@ This only affects local development on macOS. The agent runs without restriction
 
 ---
 
-## Docker
+## Deploying with Docker
 
-The project builds a single Docker image that runs as three services: API, UI, and ingest (vector store builder).
+The project builds a single Docker image that runs as three services:
 
-| Service      | Port  | Description                                  |
-| ------------ | ----- | -------------------------------------------- |
-| `sre-ingest` | —     | One-shot: builds the Chroma vector store     |
-| `sre-api`    | 8000  | FastAPI backend (`/ask`, `/health`)          |
-| `sre-ui`     | 8501  | Streamlit web UI                             |
+| Service      | Port | Description                              |
+| ------------ | ---- | ---------------------------------------- |
+| `sre-ingest` | —    | One-shot: builds the Chroma vector store |
+| `sre-api`    | 8000 | FastAPI backend (`/ask`, `/health`)      |
+| `sre-ui`     | 8501 | Streamlit web UI                         |
 
-### Quick Start with Docker Compose
+The intended deployment is on a Linux host (VM, LXC, bare metal) on the same LAN as your Prometheus, Grafana, and
+other monitored infrastructure. The pre-built image is published to `ghcr.io/johnmathews/sre-assistant:latest` on
+every push to `main`.
 
-```bash
-# 1. Clone the repo
-git clone https://github.com/johnmathews/sre-assistant.git
-cd sre-assistant
+### Adding to an Existing Docker Compose Stack
 
-# 2. Create a .env file with your API keys
-cp .env.example .env
-# Edit .env — at minimum set OPENAI_API_KEY, PROMETHEUS_URL, GRAFANA_URL,
-# and GRAFANA_SERVICE_ACCOUNT_TOKEN
-
-# 3. Build and start all services
-docker compose up -d
-
-# This runs three containers in order:
-#   sre-ingest  — builds the vector store from runbooks/ (one-shot, exits when done)
-#   sre-api     — starts after ingest completes, serves FastAPI on :8000
-#   sre-ui      — starts after api is healthy, serves Streamlit on :8501
-```
-
-Once running:
-- **Web UI:** http://localhost:8501
-- **API:** http://localhost:8000/health (health check), POST http://localhost:8000/ask
-- **Logs:** `docker compose logs -f sre-api`
-
-To stop: `docker compose down`
-
-To rebuild after code changes: `docker compose build && docker compose up -d`
-
-### Using the Pre-built Image
-
-Instead of building locally, you can pull the image from GitHub Container Registry:
+If you already have a `docker-compose.yml` on your target host, add these service definitions and the `chroma_data`
+volume:
 
 ```yaml
-# docker-compose.yml
-services:
+  # --- SRE Assistant services ---
   sre-ingest:
     image: ghcr.io/johnmathews/sre-assistant:latest
     command: ["python", "-m", "scripts.ingest_runbooks"]
@@ -146,6 +122,12 @@ services:
     depends_on:
       sre-ingest:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   sre-ui:
     image: ghcr.io/johnmathews/sre-assistant:latest
@@ -155,18 +137,99 @@ services:
     environment:
       - API_URL=http://sre-api:8000
     depends_on:
-      - sre-api
+      sre-api:
+        condition: service_healthy
 
+# Add to your existing volumes section:
 volumes:
   chroma_data:
 ```
 
-The ingest service writes to a shared `chroma_data` volume. The API reads from it. The UI talks to the API
-via the internal Docker network (`API_URL=http://sre-api:8000`).
+Then create a `.env` file alongside your compose file (see [Environment Variables](#environment-variables) below) and
+bring the services up:
 
-The `docker-compose.yml` in this repo is for local development. Production deployment on the Infra VM uses
-an Ansible-templated compose file that injects real secrets and network configuration. See
-[docs/architecture.md](docs/architecture.md) for details.
+```bash
+docker compose up -d sre-ingest sre-api sre-ui
+```
+
+### Environment Variables
+
+Create a `.env` file on the deployment host. See `.env.example` for the full list.
+
+**Required:**
+
+| Variable                         | Example                                | Notes                                      |
+| -------------------------------- | -------------------------------------- | ------------------------------------------ |
+| `OPENAI_API_KEY`                 | `sk-proj-...`                          | OpenAI API key                             |
+| `PROMETHEUS_URL`                 | `http://192.168.2.50:9090`             | Must be reachable from inside the container |
+| `GRAFANA_URL`                    | `http://192.168.2.50:3000`             | Must be reachable from inside the container |
+| `GRAFANA_SERVICE_ACCOUNT_TOKEN`  | `glsa_...`                             | Grafana service account token              |
+
+**Optional — leave empty or omit to disable the corresponding tools:**
+
+| Variable              | Enables                     |
+| --------------------- | --------------------------- |
+| `PROXMOX_URL`         | Proxmox VE tools (4 tools)  |
+| `PROXMOX_API_TOKEN`   | PVE API auth                |
+| `PBS_URL`             | PBS backup tools (3 tools)  |
+| `PBS_API_TOKEN`       | PBS API auth                |
+| `LOKI_URL`            | Loki log tools (3 tools)    |
+| `EXTRA_DOCS_DIRS`     | Additional RAG doc directories (comma-separated absolute paths) |
+
+All URLs must point to addresses reachable from inside the Docker container — see [Networking](#networking).
+
+### Networking
+
+Docker containers on the default bridge network can reach hosts on the LAN. Use LAN IP addresses (e.g.,
+`http://192.168.2.50:9090`) in your `.env`, not `localhost` — `localhost` inside a container refers to the
+container itself, not the Docker host.
+
+If your compose stack uses a custom network, make sure the SRE services are on one with LAN access. If your
+infrastructure services (Prometheus, Grafana, etc.) are also in Docker on the same host, you can put them on a shared
+Docker network and use container names as hostnames instead of IPs.
+
+### Vector Store Persistence
+
+The Chroma vector store is stored in the `chroma_data` Docker volume. It persists across container restarts and image
+updates.
+
+To rebuild the vector store (e.g., after adding or editing runbooks):
+
+```bash
+docker compose run --rm sre-ingest
+```
+
+The ingest process reads `.md` files from the bundled `runbooks/` directory (baked into the image) and any directories
+listed in `EXTRA_DOCS_DIRS`. It is strictly read-only — it only writes to the Chroma database.
+
+### Updating
+
+Pull the latest image and restart:
+
+```bash
+docker compose pull sre-api sre-ui sre-ingest
+docker compose up -d sre-api sre-ui
+```
+
+If runbooks have changed in the new image, re-run ingest:
+
+```bash
+docker compose run --rm sre-ingest
+```
+
+### Building from Source
+
+For local development or if you want to modify the image:
+
+```bash
+git clone https://github.com/johnmathews/sre-assistant.git
+cd sre-assistant
+cp .env.example .env
+# Edit .env with your values
+docker compose up -d
+```
+
+The repo's `docker-compose.yml` uses `build: .` instead of `image:` so it builds locally.
 
 ---
 
@@ -213,45 +276,10 @@ This project exists to demonstrate:
    strategy, evaluation, and cost management.
 2. **Show SRE fluency** — demonstrate real understanding of observability, alerting, change management, incident
    response, and reliability targets.
-3. **Be demo-ready** — the project must be demonstrable on demand without relying on something being broken in the
-   homelab. Synthetic incident generation solves this.
+3. **Be demo-ready** — the project is demonstrable on demand using the live homelab. Real infrastructure provides
+   real signals — alerts, metric patterns, log events — without needing synthetic incidents.
 4. **Be honest about trade-offs** — document what works, what doesn't, and what the limitations are. This is more
    impressive than a polished facade.
-
----
-
-## What It Should Achieve
-
-### Core Capabilities
-
-The assistant ingests data from two categories of sources and uses them in fundamentally different ways:
-
-**Live sources (queried in real-time via LangChain tools):**
-
-- Prometheus metrics (CPU, memory, disk, network, custom metrics)
-- Alertmanager alerts (active, silenced, inhibited)
-- Logs (via Loki or direct log access)
-
-**Knowledge base (embedded and retrieved via RAG):**
-
-- Runbooks (markdown documentation for operational procedures)
-- Ansible playbooks and inventory (infrastructure-as-code)
-- Past incident summaries (generated by the system itself over time)
-
-### Questions It Can Answer
-
-- "Why is CPU high on the Jellyfin VM?"
-- "What changed in the last 24 hours?"
-- "Summarize all active alerts"
-- "Is there a runbook for restarting the DNS stack?"
-- "Which Ansible role manages the Prometheus configuration?"
-
-### Artifacts It Can Generate
-
-- Root cause analysis (RCA) drafts
-- Incident summaries
-- Suggested remediation steps based on runbooks and historical context
-- Weekly reliability reports
 
 ---
 
@@ -261,9 +289,9 @@ The assistant ingests data from two categories of sources and uses them in funda
 Live Sources (LangChain Tools)       Knowledge Base (RAG)
 ├── Prometheus API                   ├── Runbooks (.md)
 ├── Grafana Alerting API             ├── Ansible playbooks & inventory
-├── Proxmox VE API (optional)        └── Past incident summaries
-├── PBS API (optional)                      ↓
-├── Loki / Log API                   Vector Store (Chroma / FAISS)
+├── Loki API (optional)              └── Past incident summaries
+├── Proxmox VE API (optional)               ↓
+├── PBS API (optional)               Vector Store (Chroma)
 │                                           ↓
 └──────────────┬────────────────────────────┘
                ↓
@@ -283,11 +311,40 @@ to use based on the question.
 
 ---
 
+## Current Capabilities
+
+The assistant has **up to 16 tools** across 6 categories, depending on which integrations are configured:
+
+**Always available (6 tools):**
+- Prometheus — metric search, instant queries, range queries (3 tools)
+- Grafana — active alerts, alert rule definitions (2 tools)
+- Runbook RAG — semantic search over operational runbooks (1 tool)
+
+**Available when configured (10 tools):**
+- Proxmox VE — guest listing, guest config, node status, task history (4 tools, requires `PROXMOX_URL`)
+- PBS — datastore status, backup groups, task history (3 tools, requires `PBS_URL`)
+- Loki — log queries, label discovery, change correlation timelines (3 tools, requires `LOKI_URL`)
+
+**Questions it can answer today:**
+- "Why is CPU high on the Jellyfin VM?"
+- "Summarize all active alerts"
+- "Is there a runbook for restarting the DNS stack?"
+- "What errors appeared in the last hour?"
+- "Show me backup status for the PBS datastore"
+- "What containers are running on the Proxmox node?"
+
+**Artifacts it can generate:**
+- Root cause analysis (RCA) drafts
+- Incident summaries
+- Suggested remediation steps based on runbooks
+
+---
+
 ## Use Cases
 
-### 1. Alert Explainer (Primary)
+### 1. Alert Explainer
 
-Given an active alert from Alertmanager, the agent:
+Given an active alert, the agent:
 
 1. Fetches the alert details (name, labels, severity, duration)
 2. Queries Prometheus for relevant metrics around the alert (CPU, memory, disk — context-dependent)
@@ -298,53 +355,24 @@ Given an active alert from Alertmanager, the agent:
 container restart, finds the runbook for that service, and explains that the service is likely rebuilding its cache
 post-restart and should stabilize within 30 minutes.
 
-### 2. Change Correlation
+### 2. Log Correlation
 
-When asked "what changed recently?", the agent:
+When asked "what changed recently?" or "what happened before this alert?", the agent:
 
-1. Queries Prometheus for annotation markers and metric shifts
-2. Checks Ansible run logs for recent playbook executions
-3. Checks Alertmanager for alert state transitions
-4. Correlates these into a timeline of changes
+1. Queries Loki for error/warning log spikes around the time of interest
+2. Searches for container lifecycle events (restarts, OOM kills, crashes)
+3. Correlates these into a chronological timeline grouped by service
 
-This is valuable for answering "did a recent change cause this alert?" — a core SRE workflow.
+This is valuable for answering "did something go wrong before this alert fired?" — a core SRE workflow using log data.
 
-### 3. Weekly Reliability Report
+### 3. Infrastructure Inspection
 
-A scheduled job (or on-demand request) that:
+The agent can query Proxmox VE and PBS APIs to answer questions about infrastructure state:
 
-1. Summarizes alert frequency and duration over the past week
-2. Highlights any SLO breaches
-3. Notes significant changes or deployments
-4. Produces a markdown report
-
-Lower priority — technically straightforward but shows operational maturity.
-
-### 4. Synthetic Incident Generator
-
-**Critical for demos.** This component can:
-
-1. Inject artificial load or metric anomalies into the homelab (e.g., CPU stress test, fill a disk, kill a service)
-2. Trigger real alerts through Alertmanager
-3. Let the SRE assistant investigate and explain the "incident" live
-
-Without this, every demo depends on something coincidentally being broken. With it, the project is always demo-ready.
-
----
-
-## SLIs/SLOs About Itself
-
-The assistant treats itself as a production service. It tracks and dashboards:
-
-| SLI                          | Target SLO              | How It's Measured                     |
-| ---------------------------- | ----------------------- | ------------------------------------- |
-| Agent response latency (p95) | < 15 seconds            | Timer around full agent execution     |
-| Tool call success rate       | > 99%                   | Success/failure counts per tool       |
-| RAG retrieval relevance      | > 80% relevant in top-3 | Manual evaluation + automated scoring |
-| End-to-end availability      | > 99.5%                 | Health check endpoint on FastAPI      |
-| LLM API error rate           | < 1%                    | HTTP status tracking on API calls     |
-
-These metrics are exported to Prometheus and visualized in a dedicated Grafana dashboard.
+- VM/container inventory and resource allocation
+- Node health and resource usage
+- Backup status and history
+- Recent task outcomes (migrations, backups, restores)
 
 ---
 
@@ -358,33 +386,7 @@ These metrics are exported to Prometheus and visualized in a dedicated Grafana d
 | Vector store empty/corrupt | No runbook retrieval | Agent proceeds without runbook context, flags that its answer may be less actionable.                                        |
 | Token limit exceeded       | Truncated context    | Summarize metrics/logs before passing to LLM. Implement context window budgeting.                                            |
 
-The key principle: **never silently fail**. Every degradation should be visible to the user and logged.
-
----
-
-## Evaluation Framework
-
-A set of 15–20 curated question/expected-answer pairs that validate the agent's reasoning. These serve both as regression
-tests and as demo material.
-
-**Example evaluation cases:**
-
-| #   | Scenario            | Input                                          | Expected Behavior                                                                           |
-| --- | ------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| 1   | High CPU alert      | "Why is CPU high on node-3?"                   | Queries Prometheus for CPU metrics on node-3, identifies top process, checks recent changes |
-| 2   | Disk pressure       | "Is any VM running low on disk?"               | Queries disk usage across all nodes, flags any above 85%                                    |
-| 3   | Recent changes      | "What changed in the last 24h?"                | Checks service logs, Prometheus annotations, Alertmanager history                           |
-| 4   | Runbook lookup      | "How do I restart the DNS stack?"              | Retrieves relevant runbook via RAG, presents steps                                          |
-| 5   | Alert summary       | "Summarize active alerts"                      | Fetches all firing alerts, groups by severity, explains each                                |
-| 6   | Correlation         | "Did anything change before this alert fired?" | Cross-references alert start time with change log                                           |
-| 7   | Unknown service     | "What's the status of a-nonexistent-service?"  | Gracefully reports no data found, suggests checking the name                                |
-| 8   | Ambiguous query     | "Things seem slow"                             | Asks clarifying questions or checks broad performance metrics                               |
-| 9   | LLM API failure     | Agent runs with LLM unavailable                | Returns graceful error, suggests manual check                                               |
-| 10  | No relevant runbook | "How do I fix error XYZ?"                      | States no runbook found, suggests general troubleshooting steps                             |
-| 11  | Playbook lookup     | "How do I setup a new LXC on my homelab?"      | Retrieves relevant Ansible playbook and tasks for LXC provisioning via RAG, presents steps  |
-
-The evaluation framework runs these cases, scores the responses (correct tool calls, relevant retrieval, accurate
-answer), and produces a pass/fail report. This can be run as CI or on-demand.
+The key principle: **never silently fail**. Every degradation is visible to the user and logged.
 
 ---
 
@@ -396,22 +398,7 @@ The agent maintains conversation context within a session so users can have natu
 - "What about memory on the same machine?" → (agent understands "same machine" = Jellyfin VM)
 - "Was there a change before that happened?" → (agent correlates with the original alert)
 
-Implementation uses LangChain's built-in message history with a session-scoped conversation buffer. Long conversations
-are summarized to stay within token limits.
-
----
-
-## Cost Awareness
-
-Every query tracks and displays:
-
-- **Token usage**: input tokens, output tokens, total
-- **Estimated cost**: based on the model's pricing
-- **Tool call count**: how many external API calls the agent made
-- **Latency breakdown**: time spent in LLM vs. tool calls vs. retrieval
-
-This is surfaced in the UI per query and aggregated in the Grafana dashboard. It demonstrates awareness of the unit
-economics that AI startups care deeply about.
+Implementation uses LangChain's built-in message history with a session-scoped conversation buffer.
 
 ---
 
@@ -420,21 +407,67 @@ economics that AI startups care deeply about.
 | Component       | Technology                   |
 | --------------- | ---------------------------- |
 | Agent framework | LangChain (Python)           |
-| LLM             | Claude API (Anthropic)       |
-| Vector store    | Chroma or FAISS              |
+| LLM             | OpenAI API (GPT)             |
+| Vector store    | Chroma                       |
 | Backend         | FastAPI                      |
-| Frontend        | Streamlit (MVP) or CLI       |
+| Frontend        | Streamlit + CLI              |
 | Metrics         | Prometheus                   |
 | Dashboards      | Grafana                      |
+| Logs            | Loki                         |
 | Infrastructure  | Proxmox, Ansible             |
-| Logs            | Loki (or direct file access) |
-| Alerting        | Alertmanager                 |
+| Alerting        | Grafana unified alerting     |
+
+---
+
+## Roadmap
+
+Features planned for upcoming phases:
+
+### SLI/SLO Dashboard (Phase 4)
+
+Self-instrumentation with Prometheus metrics. The assistant will track its own reliability:
+
+| SLI                          | Target SLO              | How It's Measured                     |
+| ---------------------------- | ----------------------- | ------------------------------------- |
+| Agent response latency (p95) | < 15 seconds            | Timer around full agent execution     |
+| Tool call success rate       | > 99%                   | Success/failure counts per tool       |
+| RAG retrieval relevance      | > 80% relevant in top-3 | Manual evaluation + automated scoring |
+| End-to-end availability      | > 99.5%                 | Health check endpoint on FastAPI      |
+| LLM API error rate           | < 1%                    | HTTP status tracking on API calls     |
+
+These metrics will be exported to Prometheus and visualized in a dedicated Grafana dashboard.
+
+### Cost Awareness (Phase 4)
+
+Per-query tracking of token usage, estimated cost, tool call count, and latency breakdown — surfaced in the UI and
+aggregated in the Grafana dashboard.
+
+### Evaluation Framework (Phase 5)
+
+15–20 curated question/expected-answer pairs that validate the agent's reasoning:
+
+| #   | Scenario            | Input                                          | Expected Behavior                                                                           |
+| --- | ------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 1   | High CPU alert      | "Why is CPU high on node-3?"                   | Queries Prometheus for CPU metrics on node-3, identifies top process, checks recent changes |
+| 2   | Disk pressure       | "Is any VM running low on disk?"               | Queries disk usage across all nodes, flags any above 85%                                    |
+| 3   | Recent changes      | "What changed in the last 24h?"                | Checks service logs, Prometheus annotations, Alertmanager history                           |
+| 4   | Runbook lookup      | "How do I restart the DNS stack?"              | Retrieves relevant runbook via RAG, presents steps                                          |
+| 5   | Alert summary       | "Summarize active alerts"                      | Fetches all firing alerts, groups by severity, explains each                                |
+| 6   | Correlation         | "Did anything change before this alert fired?" | Cross-references alert start time with log data                                             |
+| 7   | Unknown service     | "What's the status of a-nonexistent-service?"  | Gracefully reports no data found, suggests checking the name                                |
+| 8   | Ambiguous query     | "Things seem slow"                             | Asks clarifying questions or checks broad performance metrics                               |
+| 9   | LLM API failure     | Agent runs with LLM unavailable                | Returns graceful error, suggests manual check                                               |
+| 10  | No relevant runbook | "How do I fix error XYZ?"                      | States no runbook found, suggests general troubleshooting steps                             |
+
+### Weekly Reliability Report (Phase 6)
+
+Scheduled summarization of the past week's alerts, changes, and SLO status — output as a markdown report.
 
 ---
 
 ## Build Order
 
-The project is built incrementally, with each phase producing a working, demonstrable system:
+The project is built incrementally, with each phase producing a working, demonstrable system.
 
 ### Phase 1: Alert Explainer (Core Agent)
 
@@ -469,7 +502,7 @@ The project is built incrementally, with each phase producing a working, demonst
 
 **Phase 1 complete.** All build steps finished — the agent has Prometheus tools, Grafana alerting tools, Proxmox VE
 tools, PBS tools, runbook RAG, a system prompt with conversation memory, a FastAPI backend (`POST /ask`, `GET /health`),
-an interactive CLI, and design documentation. 171 tests passing.
+an interactive CLI, and design documentation.
 
 ### Phase 2: Synthetic Incident Generator — _Shelved_
 
@@ -483,11 +516,11 @@ Considered three approaches (mock HTTP scenario server, tool-level interception,
 decided the complexity isn't justified when real infrastructure provides adequate test signals. May revisit if the
 project needs a portable offline demo.
 
-### Phase 3: Change Correlation
+### Phase 3: Loki Log Tools
 
 - Add Loki log query tools for general-purpose log access
-- Implement timeline correlation between changes and alert state transitions
-- **Deliverable:** "What changed before this alert?" produces a correlated timeline
+- Implement log-based change correlation (error spikes, container lifecycle events)
+- **Deliverable:** "What errors appeared recently?" and "What changed before this alert?" answered via Loki
 
 #### Build steps
 
@@ -531,7 +564,7 @@ and documentation. 230 tests passing.
 ### Deployment
 
 The agent runs as Docker containers on the Infra VM, deployed via the existing
-[home-server](https://github.com/johnmathews/home-server) Ansible project. See the [Docker](#docker) section
+[home-server](https://github.com/johnmathews/home-server) Ansible project. See [Deploying with Docker](#deploying-with-docker)
 for container setup and [docs/architecture.md](docs/architecture.md) for the full deployment plan.
 
 Production secrets (API keys, tokens) are managed via Ansible Vault and injected as environment variables
@@ -577,8 +610,7 @@ homelab-sre-assistant/
 │   ├── tool-reference.md         # All tools with inputs and examples
 │   ├── code-flow.md              # Request lifecycle, tool registration
 │   └── dependencies.md           # Python packages, external services
-├── runbooks/                     # Operational runbooks (markdown, ingested into RAG)
-└── dashboards/                   # Grafana dashboard JSON exports
+└── runbooks/                     # Operational runbooks (markdown, ingested into RAG)
 ```
 
 ---

@@ -44,9 +44,9 @@ The LangChain agent decides which approach to use based on the question.
 
 This applies to: starting a new build phase, introducing a new tool/integration, making significant architectural changes, or adding a new dependency. It does not apply to small bug fixes or minor refactoring within already-understood code.
 
-## Phase 1 Build Plan
+## Build Plan
 
-See `readme.md` → "Phase 1: Alert Explainer" → "Build steps" for the detailed step-by-step plan with progress tracking.
+See `readme.md` → "Build Order" for detailed phase-by-phase build steps with progress tracking.
 
 ## Commands
 
@@ -86,7 +86,7 @@ The project is built incrementally. Each phase produces a working, demonstrable 
 
 1. **Alert Explainer** — Core LangChain agent + Prometheus/Grafana/Proxmox/PBS tools + runbook RAG + FastAPI + basic UI
 2. ~~**Synthetic Incident Generator**~~ — *Shelved.* Real homelab provides adequate test signals.
-3. **Change Correlation** — Ansible log ingestion, timeline correlation between changes and alerts
+3. **Loki Log Tools** — Log queries, label discovery, change correlation via Loki
 4. **SLI/SLO Dashboard** — Self-instrumentation with Prometheus metrics, Grafana dashboard for the assistant's own
    reliability
 5. **Evaluation Framework** — Automated test cases scoring tool selection, retrieval relevance, answer quality
@@ -94,7 +94,7 @@ The project is built incrementally. Each phase produces a working, demonstrable 
 
 ## Source Layout
 
-- `src/agent/` — LangChain agent setup, tools (prometheus, grafana_alerts, proxmox, pbs), retrieval (embeddings,
+- `src/agent/` — LangChain agent setup, tools (prometheus, grafana_alerts, proxmox, pbs, loki), retrieval (embeddings,
   runbooks), memory
 - `src/api/` — FastAPI application
 - `src/ui/` — Streamlit frontend
