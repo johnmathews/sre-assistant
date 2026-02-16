@@ -200,14 +200,38 @@ Docker network and use container names as hostnames instead of IPs.
 The Chroma vector store is stored in the `chroma_data` Docker volume. It persists across container restarts and image
 updates.
 
-To rebuild the vector store (e.g., after adding or editing runbooks):
+The ingest process reads `.md` files from two sources:
 
-```bash
-docker compose run --rm sre-ingest
+- **Bundled runbooks** — the `runbooks/` directory is baked into the Docker image at build time. These update when
+  you pull a new image.
+- **External documentation** — host directories mounted into the container via `EXTRA_DOCS_DIRS`. Use this for
+  Ansible playbooks, inventory, or other docs that live outside this repo.
+
+To include external docs (e.g., an Ansible repo on the deployment host), add a read-only volume mount to the
+`sre-ingest` service and set `EXTRA_DOCS_DIRS`:
+
+```yaml
+  sre-ingest:
+    image: ghcr.io/johnmathews/sre-assistant:latest
+    command: ["python", "-m", "scripts.ingest_runbooks"]
+    env_file: .env
+    volumes:
+      - chroma_data:/app/.chroma_db
+      - /path/to/home-server:/app/ansible:ro
+    environment:
+      - EXTRA_DOCS_DIRS=/app/ansible
+    profiles: ["setup"]
 ```
 
-The ingest process reads `.md` files from the bundled `runbooks/` directory (baked into the image) and any directories
-listed in `EXTRA_DOCS_DIRS`. It is strictly read-only — it only writes to the Chroma database.
+Re-run ingest whenever the source material changes:
+
+```bash
+# After pulling a new image (bundled runbooks may have changed)
+docker compose run --rm sre-ingest
+
+# After updating external docs (e.g., git pull on Ansible repo)
+docker compose run --rm sre-ingest
+```
 
 ### Updating
 
