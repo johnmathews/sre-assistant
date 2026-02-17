@@ -456,12 +456,19 @@ async def hdd_power_status() -> str:
     if stats_24h:
         total_changes = sum(s.change_count for s in stats_24h.values())
         lines.append(f"\nLast 24h: {total_changes} state change(s) total")
+        # Build pool lookup from current power states (metrics have pool label)
+        pool_by_device: dict[str, str] = {}
+        for series in power_states:
+            did = series.get("metric", {}).get("device_id", "unknown")
+            pool_by_device[did] = series.get("metric", {}).get("pool", "")
         for device_id, stats in stats_24h.items():
             hex_key = _extract_hex(device_id)
             disk_entry = disk_lookup.get(hex_key)
             disk_name = _format_disk_name(disk_entry, device_id)
+            pool = pool_by_device.get(device_id, "")
+            pool_str = f" [pool: {pool}]" if pool else ""
             lines.append(
-                f"  {disk_name} — {stats.change_count} change(s), "
+                f"  {disk_name}{pool_str} — {stats.change_count} change(s), "
                 f"standby {stats.standby_pct}%, active {stats.active_pct}%"
             )
 
