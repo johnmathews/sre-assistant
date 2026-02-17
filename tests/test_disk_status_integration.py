@@ -30,14 +30,35 @@ def _mock_power_state_response(
     )
 
 
-def _zero_changes_response() -> httpx.Response:
-    """Build a changes() response where all disks have 0 changes."""
-    return _mock_power_state_response(
-        [
-            {"metric": {"device_id": "d1"}, "value": [1700000000, "0"]},
-            {"metric": {"device_id": "d2"}, "value": [1700000000, "0"]},
-        ]
+def _mock_range_response(
+    results: list[dict[str, Any]],
+) -> httpx.Response:
+    """Build a mocked Prometheus range query response."""
+    return httpx.Response(
+        200,
+        json={
+            "status": "success",
+            "data": {
+                "resultType": "matrix",
+                "result": results,
+            },
+        },
     )
+
+
+def _stable_range_data() -> list[dict[str, Any]]:
+    """Range result where both disks stay in the same state group (no group transitions)."""
+    return [
+        {
+            "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500eb02b449"},
+            # idle_a(3) → idle_b(4) — both "active" group, 0 group transitions
+            "values": [[1699999800, "3"], [1699999860, "4"], [1699999920, "3"], [1699999980, "4"]],
+        },
+        {
+            "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500f742ccbf"},
+            "values": [[1699999800, "0"], [1699999860, "0"], [1699999920, "0"], [1699999980, "0"]],
+        },
+    ]
 
 
 def _mock_truenas_disks() -> httpx.Response:
@@ -98,15 +119,15 @@ class TestHddPowerStatus:
     @respx.mock
     async def test_shows_current_state_with_disk_names(self) -> None:
         """Tool cross-references Prometheus device_ids with TrueNAS disk inventory."""
-        # Query order: current_state, 24h_counts, changes_1h, changes_6h, changes_24h, changes_7d
+        # Only current_state uses instant query now
         respx.get("http://prometheus.test:9090/api/v1/query").mock(
+            return_value=_mock_power_state_response(POWER_STATE_RESULTS),
+        )
+        # 24h counts + 4 transition windows (1h, 6h, 24h, 7d) all return stable data
+        respx.get("http://prometheus.test:9090/api/v1/query_range").mock(
             side_effect=[
-                _mock_power_state_response(POWER_STATE_RESULTS),
-                _zero_changes_response(),  # 24h change counts
-                _zero_changes_response(),  # changes() 1h
-                _zero_changes_response(),  # changes() 6h
-                _zero_changes_response(),  # changes() 24h
-                _zero_changes_response(),  # changes() 7d
+                _mock_range_response(_stable_range_data()),  # 24h counts
+                *[_mock_range_response(_stable_range_data()) for _ in range(4)],  # transition windows
             ]
         )
         respx.get("https://truenas.test/api/v2.0/disk").mock(return_value=_mock_truenas_disks())
@@ -126,12 +147,15 @@ class TestHddPowerStatus:
 
     @respx.mock
     async def test_no_changes_reports_stable(self) -> None:
-        """When no transitions in 7d, clearly states disks are stable."""
+        """When no group transitions in 7d, clearly states disks are stable."""
         respx.get("http://prometheus.test:9090/api/v1/query").mock(
+            return_value=_mock_power_state_response(POWER_STATE_RESULTS),
+        )
+        # 24h counts + 4 windows, all stable (no group transitions)
+        respx.get("http://prometheus.test:9090/api/v1/query_range").mock(
             side_effect=[
-                _mock_power_state_response(POWER_STATE_RESULTS),
-                _zero_changes_response(),  # 24h change counts
-                *[_zero_changes_response() for _ in range(4)],  # changes() widening
+                _mock_range_response(_stable_range_data()),  # 24h counts
+                *[_mock_range_response(_stable_range_data()) for _ in range(4)],  # windows
             ]
         )
         respx.get("https://truenas.test/api/v2.0/disk").mock(return_value=_mock_truenas_disks())
@@ -141,74 +165,37 @@ class TestHddPowerStatus:
 
     @respx.mock
     async def test_finds_transitions_with_range_query(self) -> None:
-        """When changes() finds transitions, pinpoints time with range query."""
+        """When group transitions are detected, pinpoints time with range query."""
+        # Range data with a real group transition: standby(0) → active(2)
+        transition_range_data = [
+            {
+                "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500eb02b449"},
+                "values": [
+                    [1699999800, "0"],  # standby
+                    [1699999815, "0"],
+                    [1699999830, "2"],  # ← group transition (standby → active)
+                    [1699999845, "2"],
+                ],
+            },
+            {
+                "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500f742ccbf"},
+                "values": [
+                    [1699999800, "0"],
+                    [1699999815, "0"],
+                    [1699999830, "0"],
+                    [1699999845, "0"],
+                ],
+            },
+        ]
         respx.get("http://prometheus.test:9090/api/v1/query").mock(
-            side_effect=[
-                # Current state
-                _mock_power_state_response(POWER_STATE_RESULTS),
-                # 24h change counts — 1 change on first disk
-                _mock_power_state_response(
-                    [
-                        {
-                            "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500eb02b449"},
-                            "value": [1700000000, "1"],
-                        },
-                        {
-                            "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500f742ccbf"},
-                            "value": [1700000000, "0"],
-                        },
-                    ]
-                ),
-                # changes() for 1h — finds a change on first disk
-                _mock_power_state_response(
-                    [
-                        {
-                            "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500eb02b449"},
-                            "value": [1700000000, "1"],  # 1 change detected
-                        },
-                        {
-                            "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500f742ccbf"},
-                            "value": [1700000000, "0"],
-                        },
-                    ]
-                ),
-            ]
+            return_value=_mock_power_state_response(POWER_STATE_RESULTS),
         )
-        # Range query to pinpoint transition
         respx.get("http://prometheus.test:9090/api/v1/query_range").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "status": "success",
-                    "data": {
-                        "resultType": "matrix",
-                        "result": [
-                            {
-                                "metric": {
-                                    "device_id": "/dev/disk/by-id/wwn-0x5000c500eb02b449",
-                                },
-                                "values": [
-                                    [1699999800, "0"],  # standby
-                                    [1699999815, "0"],
-                                    [1699999830, "2"],  # ← transition!
-                                    [1699999845, "2"],
-                                ],
-                            },
-                            {
-                                "metric": {
-                                    "device_id": "/dev/disk/by-id/wwn-0x5000c500f742ccbf",
-                                },
-                                "values": [
-                                    [1699999800, "0"],
-                                    [1699999815, "0"],
-                                    [1699999830, "0"],
-                                    [1699999845, "0"],
-                                ],
-                            },
-                        ],
-                    },
-                },
-            )
+            side_effect=[
+                _mock_range_response(transition_range_data),  # 24h counts (1 transition on disk1)
+                _mock_range_response(transition_range_data),  # _find_transition_window 1h → found!
+                _mock_range_response(transition_range_data),  # _find_transition_times 1h
+            ]
         )
         respx.get("https://truenas.test/api/v2.0/disk").mock(return_value=_mock_truenas_disks())
 
@@ -226,59 +213,50 @@ class TestHddPowerStatus:
 
     @respx.mock
     async def test_shows_24h_change_counts(self) -> None:
-        """Tool includes per-disk change counts in last 24 hours."""
+        """Tool includes per-disk group transition counts in last 24 hours."""
+        # 24h range data: disk1 has 3 group transitions, disk2 has 2
+        twentyfour_h_data = [
+            {
+                "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500eb02b449"},
+                # standby→active→standby→active (3 group transitions)
+                "values": [
+                    [1699920000, "0"],
+                    [1699930000, "2"],
+                    [1699940000, "0"],
+                    [1699950000, "4"],
+                ],
+            },
+            {
+                "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500f742ccbf"},
+                # active→standby→active (2 group transitions)
+                "values": [
+                    [1699920000, "3"],
+                    [1699930000, "0"],
+                    [1699940000, "6"],
+                    [1699950000, "6"],
+                ],
+            },
+        ]
+        # 1h window data with a transition for _find_transition_window
+        one_h_data = [
+            {
+                "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500eb02b449"},
+                "values": [[1699999800, "0"], [1699999830, "2"]],
+            },
+            {
+                "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500f742ccbf"},
+                "values": [[1699999800, "2"], [1699999830, "0"]],
+            },
+        ]
         respx.get("http://prometheus.test:9090/api/v1/query").mock(
-            side_effect=[
-                _mock_power_state_response(POWER_STATE_RESULTS),
-                # 24h change counts — 3 changes on disk 1, 2 on disk 2
-                _mock_power_state_response(
-                    [
-                        {
-                            "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500eb02b449"},
-                            "value": [1700000000, "3"],
-                        },
-                        {
-                            "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500f742ccbf"},
-                            "value": [1700000000, "2"],
-                        },
-                    ]
-                ),
-                # changes() for 1h — has changes
-                _mock_power_state_response(
-                    [
-                        {
-                            "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500eb02b449"},
-                            "value": [1700000000, "1"],
-                        },
-                        {
-                            "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500f742ccbf"},
-                            "value": [1700000000, "1"],
-                        },
-                    ]
-                ),
-            ]
+            return_value=_mock_power_state_response(POWER_STATE_RESULTS),
         )
-        # Range query
         respx.get("http://prometheus.test:9090/api/v1/query_range").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "status": "success",
-                    "data": {
-                        "resultType": "matrix",
-                        "result": [
-                            {
-                                "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500eb02b449"},
-                                "values": [[1699999800, "0"], [1699999830, "2"]],
-                            },
-                            {
-                                "metric": {"device_id": "/dev/disk/by-id/wwn-0x5000c500f742ccbf"},
-                                "values": [[1699999800, "2"], [1699999830, "0"]],
-                            },
-                        ],
-                    },
-                },
-            )
+            side_effect=[
+                _mock_range_response(twentyfour_h_data),  # 24h counts
+                _mock_range_response(one_h_data),  # _find_transition_window 1h → found!
+                _mock_range_response(one_h_data),  # _find_transition_times 1h
+            ]
         )
         respx.get("https://truenas.test/api/v2.0/disk").mock(return_value=_mock_truenas_disks())
 
@@ -309,10 +287,12 @@ class TestHddPowerStatus:
     async def test_works_without_truenas(self) -> None:
         """When TrueNAS is unreachable, still shows power states with device IDs."""
         respx.get("http://prometheus.test:9090/api/v1/query").mock(
+            return_value=_mock_power_state_response(POWER_STATE_RESULTS),
+        )
+        respx.get("http://prometheus.test:9090/api/v1/query_range").mock(
             side_effect=[
-                _mock_power_state_response(POWER_STATE_RESULTS),
-                _zero_changes_response(),  # 24h change counts
-                *[_zero_changes_response() for _ in range(4)],  # changes() widening
+                _mock_range_response(_stable_range_data()),  # 24h counts
+                *[_mock_range_response(_stable_range_data()) for _ in range(4)],  # windows
             ]
         )
         respx.get("https://truenas.test/api/v2.0/disk").mock(side_effect=httpx.ConnectError("TrueNAS down"))

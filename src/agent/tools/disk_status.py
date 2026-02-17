@@ -6,6 +6,7 @@ human-readable HDD summaries without requiring the LLM to chain multiple queries
 
 import logging
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import httpx
@@ -49,6 +50,43 @@ _ACTIVE_STATES = {1, 2, 3, 4, 5, 6}
 _STANDBY_STATES = {0, 7}
 # States that are error/indeterminate
 _ERROR_STATES = {-2, -1}
+
+
+def _state_group(value: float) -> str:
+    """Classify a numeric power state into a meaningful group.
+
+    Sub-state fluctuations (e.g. idle_a ↔ idle_b) are NOT real transitions.
+    Only transitions between these groups count as real state changes.
+    """
+    int_val = int(value)
+    if int_val in _ACTIVE_STATES:
+        return "active"
+    if int_val in _STANDBY_STATES:
+        return "standby"
+    return "error"
+
+
+def _count_group_transitions(values: Sequence[object]) -> int:
+    """Count how many times the state group changes in a Prometheus range result.
+
+    Each element of `values` is [timestamp, string_value].
+    Only transitions between groups (active/standby/error) are counted.
+    """
+    if len(values) < 2:
+        return 0
+    transitions = 0
+    first_pair: list[object] = values[0] if isinstance(values[0], list) else []
+    prev_group = _state_group(float(str(first_pair[1]))) if len(first_pair) > 1 else "error"
+    for raw_pair in values[1:]:
+        pair: list[object] = raw_pair if isinstance(raw_pair, list) else []
+        if len(pair) < 2:
+            continue
+        curr_group = _state_group(float(str(pair[1])))
+        if curr_group != prev_group:
+            transitions += 1
+            prev_group = curr_group
+    return transitions
+
 
 # Time windows for progressive changes() widening (seconds)
 TRANSITION_WINDOWS = ["1h", "6h", "24h", "7d"]
@@ -116,15 +154,34 @@ async def _get_current_power_states() -> list[PrometheusSeries]:
 
 
 async def _find_transition_window() -> tuple[str | None, dict[str, int]]:
-    """Find the shortest time window that contains power state changes.
+    """Find the shortest time window that contains power state group changes.
 
-    Uses changes() with progressive widening: 1h → 6h → 24h → 7d.
+    Uses range queries with progressive widening: 1h → 6h → 24h → 7d.
+    Only counts transitions between state groups (active/standby/error),
+    not sub-state fluctuations (e.g. idle_a ↔ idle_b).
     Returns (window_string, per_device_change_counts) or (None, {}).
     """
+    window_seconds: dict[str, int] = {
+        "1h": 3600,
+        "6h": 21600,
+        "24h": 86400,
+        "7d": 604800,
+    }
     for window in TRANSITION_WINDOWS:
+        duration = window_seconds.get(window, 3600)
+        now = datetime.now(UTC)
+        start_ts = str(int(now.timestamp()) - duration)
+        end_ts = str(int(now.timestamp()))
+        step = "15s" if duration <= 3600 else "60s" if duration <= 86400 else "5m"
+
         data = await _query_prometheus(
-            "/api/v1/query",
-            {"query": f'changes(disk_power_state{{type="hdd"}}[{window}])'},
+            "/api/v1/query_range",
+            {
+                "query": 'disk_power_state{type="hdd"}',
+                "start": start_ts,
+                "end": end_ts,
+                "step": step,
+            },
         )
         if data.get("status") != "success":
             continue
@@ -132,9 +189,10 @@ async def _find_transition_window() -> tuple[str | None, dict[str, int]]:
         counts: dict[str, int] = {}
         has_changes = False
         for series in results:
-            device_id = series.get("metric", {}).get("device_id", "unknown")
-            value_pair = series.get("value", [0, "0"])
-            count = int(float(str(value_pair[1]))) if len(value_pair) > 1 else 0
+            metric = series.get("metric", {})
+            device_id = metric.get("device_id", "unknown") if isinstance(metric, dict) else "unknown"
+            values = series.get("values", [])
+            count = _count_group_transitions(values if isinstance(values, list) else [])
             counts[device_id] = count
             if count > 0:
                 has_changes = True
@@ -144,19 +202,32 @@ async def _find_transition_window() -> tuple[str | None, dict[str, int]]:
 
 
 async def _get_24h_change_counts() -> dict[str, int]:
-    """Get the number of power state changes per disk in the last 24 hours."""
+    """Get the number of power state group changes per disk in the last 24 hours.
+
+    Counts transitions between groups (active/standby/error), not sub-state
+    fluctuations like idle_a ↔ idle_b.
+    """
+    now = datetime.now(UTC)
+    start_ts = str(int(now.timestamp()) - 86400)
+    end_ts = str(int(now.timestamp()))
+
     data = await _query_prometheus(
-        "/api/v1/query",
-        {"query": 'changes(disk_power_state{type="hdd"}[24h])'},
+        "/api/v1/query_range",
+        {
+            "query": 'disk_power_state{type="hdd"}',
+            "start": start_ts,
+            "end": end_ts,
+            "step": "60s",
+        },
     )
     if data.get("status") != "success":
         return {}
     counts: dict[str, int] = {}
     for series in data.get("data", {}).get("result", []):
-        device_id = series.get("metric", {}).get("device_id", "unknown")
-        value_pair = series.get("value", [0, "0"])
-        count = int(float(str(value_pair[1]))) if len(value_pair) > 1 else 0
-        counts[device_id] = count
+        metric = series.get("metric", {})
+        device_id = metric.get("device_id", "unknown") if isinstance(metric, dict) else "unknown"
+        values = series.get("values", [])
+        counts[device_id] = _count_group_transitions(values if isinstance(values, list) else [])
     return counts
 
 
@@ -199,7 +270,8 @@ async def _find_transition_times(window: str) -> dict[str, str]:
         if len(values) < 2:
             continue
 
-        # Walk backwards to find the most recent transition
+        # Walk backwards to find the most recent group transition
+        # (active ↔ standby ↔ error), ignoring sub-state fluctuations
         last_transition_ts: float | None = None
         from_state: float | None = None
         to_state: float | None = None
@@ -207,7 +279,7 @@ async def _find_transition_times(window: str) -> dict[str, str]:
         for i in range(len(values) - 1, 0, -1):
             curr_val = float(values[i][1])
             prev_val = float(values[i - 1][1])
-            if curr_val != prev_val:
+            if _state_group(curr_val) != _state_group(prev_val):
                 last_transition_ts = float(values[i][0])
                 from_state = prev_val
                 to_state = curr_val

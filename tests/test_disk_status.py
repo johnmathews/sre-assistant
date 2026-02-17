@@ -6,9 +6,11 @@ from src.agent.tools.disk_status import (
     _STANDBY_STATES,
     POWER_STATE_LABELS,
     _build_disk_lookup,
+    _count_group_transitions,
     _extract_hex,
     _format_disk_name,
     _format_power_state,
+    _state_group,
 )
 from src.agent.tools.truenas import TruenasDiskEntry
 
@@ -140,3 +142,69 @@ class TestFormatPowerState:
     def test_idle_and_active_are_spun_up(self) -> None:
         for value in (1, 2, 3, 4, 5, 6):
             assert value in _ACTIVE_STATES
+
+
+class TestStateGroup:
+    """Tests for _state_group classification used in transition counting."""
+
+    def test_active_states_classified_as_active(self) -> None:
+        for value in (1, 2, 3, 4, 5, 6):
+            assert _state_group(float(value)) == "active"
+
+    def test_standby_states_classified_as_standby(self) -> None:
+        assert _state_group(0.0) == "standby"
+        assert _state_group(7.0) == "standby"
+
+    def test_error_states_classified_as_error(self) -> None:
+        assert _state_group(-2.0) == "error"
+        assert _state_group(-1.0) == "error"
+
+
+class TestCountGroupTransitions:
+    """Tests for _count_group_transitions — the core fix for inflated change counts."""
+
+    def test_empty_values(self) -> None:
+        assert _count_group_transitions([]) == 0
+
+    def test_single_value(self) -> None:
+        assert _count_group_transitions([[1700000000, "2"]]) == 0
+
+    def test_no_transitions_same_group(self) -> None:
+        """Sub-state fluctuations within the same group are NOT counted."""
+        values = [
+            [1700000000, "3"],  # idle_a (active)
+            [1700000060, "4"],  # idle_b (active)
+            [1700000120, "5"],  # idle_c (active)
+            [1700000180, "3"],  # idle_a (active)
+            [1700000240, "6"],  # active (active)
+        ]
+        assert _count_group_transitions(values) == 0
+
+    def test_one_transition_standby_to_active(self) -> None:
+        values = [
+            [1700000000, "0"],  # standby
+            [1700000060, "0"],
+            [1700000120, "2"],  # active
+            [1700000180, "2"],
+        ]
+        assert _count_group_transitions(values) == 1
+
+    def test_multiple_transitions(self) -> None:
+        """standby → active → standby → active = 3 transitions."""
+        values = [
+            [1700000000, "0"],  # standby
+            [1700000060, "4"],  # active (idle_b)
+            [1700000120, "0"],  # standby
+            [1700000180, "2"],  # active
+        ]
+        assert _count_group_transitions(values) == 3
+
+    def test_ignores_sub_state_noise_around_real_transition(self) -> None:
+        """idle_a → idle_b → standby = 1 real transition, not 2."""
+        values = [
+            [1700000000, "3"],  # idle_a (active)
+            [1700000060, "4"],  # idle_b (active) — sub-state noise
+            [1700000120, "5"],  # idle_c (active) — sub-state noise
+            [1700000180, "0"],  # standby — real transition!
+        ]
+        assert _count_group_transitions(values) == 1
