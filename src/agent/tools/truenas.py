@@ -63,6 +63,22 @@ async def _truenas_get(path: str, params: dict[str, str] | None = None) -> objec
         return data
 
 
+async def _truenas_post(path: str, body: dict[str, object] | None = None) -> object:
+    """Make an authenticated POST request to the TrueNAS SCALE API.
+
+    Some TrueNAS middleware methods (e.g. smb.status) require POST.
+    """
+    url = f"{get_settings().truenas_url}/api/v2.0{path}"
+    async with httpx.AsyncClient(
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+        verify=_truenas_ssl_verify(),
+    ) as client:
+        response = await client.post(url, headers=_truenas_headers(), json=body or {})
+        _ = response.raise_for_status()
+        data: object = response.json()  # pyright: ignore[reportAny]
+        return data
+
+
 # --- Response TypedDicts ---
 
 
@@ -109,19 +125,28 @@ class TruenasSmbShareEntry(TypedDict, total=False):
     purpose: str
 
 
-class TruenasSmbSessionEntry(TypedDict, total=False):
-    """A single active SMB session from /smb/status."""
+class TruenasSmbShareConnection(TypedDict, total=False):
+    """A single share connection within an SMB session."""
 
-    session_id: int
-    server_id: dict[str, object]
+    service: str
+    connected_at: str
+    machine: str
+
+
+class TruenasSmbSessionEntry(TypedDict, total=False):
+    """A single active SMB session from POST /smb/status."""
+
+    session_id: str
     uid: int
     username: str
     groupname: str
     remote_machine: str
     hostname: str
     session_dialect: str
-    encryption: str
-    signing: str
+    encryption: dict[str, str]
+    signing: dict[str, str]
+    creation_time: str
+    share_connections: list[TruenasSmbShareConnection]
 
 
 class TruenasSnapshotEntry(TypedDict, total=False):
@@ -355,22 +380,32 @@ def _format_shares(
             lines.append("  (none)")
         for session in smb_sessions:
             username = session.get("username", "?")
-            hostname = session.get("hostname", "")
             remote = session.get("remote_machine", "?")
             dialect = session.get("session_dialect", "")
-            encryption = session.get("encryption", "")
-            signing = session.get("signing", "")
 
-            host_str = hostname if hostname else remote
+            # Extract cipher strings from nested dicts
+            enc_dict = session.get("encryption", {})
+            enc_cipher = enc_dict.get("cipher", "-") if isinstance(enc_dict, dict) else str(enc_dict)
+            sign_dict = session.get("signing", {})
+            sign_cipher = sign_dict.get("cipher", "-") if isinstance(sign_dict, dict) else str(sign_dict)
+
             details: list[str] = []
             if dialect:
-                details.append(f"dialect={dialect}")
-            if encryption:
-                details.append(f"encrypt={encryption}")
-            if signing:
-                details.append(f"sign={signing}")
+                details.append(dialect)
+            if enc_cipher and enc_cipher != "-":
+                details.append(f"encrypt={enc_cipher}")
+            if sign_cipher and sign_cipher != "-":
+                details.append(f"sign={sign_cipher}")
             detail_str = f" ({', '.join(details)})" if details else ""
-            lines.append(f"  {username}@{host_str}{detail_str}")
+
+            # Show which shares this session is connected to
+            share_conns = session.get("share_connections", [])
+            share_names = [
+                sc.get("service", "?") for sc in share_conns if isinstance(sc, dict) and sc.get("service") != "IPC$"
+            ]
+            shares_str = f" -> {', '.join(share_names)}" if share_names else ""
+
+            lines.append(f"  {username}@{remote}{detail_str}{shares_str}")
 
     return "\n".join(lines)
 
@@ -694,7 +729,7 @@ async def truenas_list_shares(
 
         if include_sessions and share_type != "nfs":
             try:
-                sessions_raw = await _truenas_get("/smb/status")
+                sessions_raw = await _truenas_post("/smb/status")
                 smb_sessions = sessions_raw if isinstance(sessions_raw, list) else []
             except (httpx.HTTPStatusError, httpx.ConnectError):
                 logger.warning("Could not fetch SMB sessions from /smb/status")

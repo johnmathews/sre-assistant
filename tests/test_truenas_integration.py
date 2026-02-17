@@ -169,7 +169,7 @@ class TestTruenasListShares:
 
     @respx.mock
     async def test_include_sessions(self) -> None:
-        """include_sessions=true fetches active SMB sessions."""
+        """include_sessions=true fetches active SMB sessions via POST."""
         respx.get(f"{BASE}/sharing/nfs").mock(return_value=httpx.Response(200, json=[]))
         respx.get(f"{BASE}/sharing/smb").mock(
             return_value=httpx.Response(
@@ -177,18 +177,22 @@ class TestTruenasListShares:
                 json=[{"name": "media", "path": "/mnt/tank/media", "enabled": True}],
             )
         )
-        respx.get(f"{BASE}/smb/status").mock(
+        respx.post(f"{BASE}/smb/status").mock(
             return_value=httpx.Response(
                 200,
                 json=[
                     {
-                        "session_id": 1,
+                        "session_id": "123",
                         "username": "john",
                         "remote_machine": "192.168.2.50",
-                        "hostname": "johns-macbook",
+                        "hostname": "ipv4:192.168.2.50:49226",
                         "session_dialect": "SMB3_11",
-                        "encryption": "-",
-                        "signing": "AES-128-GMAC",
+                        "encryption": {"cipher": "-", "degree": "none"},
+                        "signing": {"cipher": "AES-128-GMAC", "degree": "partial"},
+                        "share_connections": [
+                            {"service": "photos", "machine": "192.168.2.50"},
+                            {"service": "IPC$", "machine": "192.168.2.50"},
+                        ],
                     },
                 ],
             )
@@ -196,8 +200,11 @@ class TestTruenasListShares:
 
         result = await truenas_list_shares.ainvoke({"include_sessions": True})
         assert "Active SMB sessions (1)" in result
-        assert "john@johns-macbook" in result
+        assert "john@192.168.2.50" in result
         assert "SMB3_11" in result
+        assert "photos" in result
+        # IPC$ should be filtered out
+        assert "IPC$" not in result
 
     @respx.mock
     async def test_sessions_without_flag_omitted(self) -> None:
@@ -213,7 +220,7 @@ class TestTruenasListShares:
         """If /smb/status returns an error, sessions degrade gracefully."""
         respx.get(f"{BASE}/sharing/nfs").mock(return_value=httpx.Response(200, json=[]))
         respx.get(f"{BASE}/sharing/smb").mock(return_value=httpx.Response(200, json=[]))
-        respx.get(f"{BASE}/smb/status").mock(return_value=httpx.Response(404, text="Not Found"))
+        respx.post(f"{BASE}/smb/status").mock(return_value=httpx.Response(404, text="Not Found"))
 
         result = await truenas_list_shares.ainvoke({"include_sessions": True})
         assert "Active SMB sessions (0)" in result
