@@ -1,6 +1,9 @@
 """Unit tests for the HDD power status composite tool."""
 
 from src.agent.tools.disk_status import (
+    _ACTIVE_STATES,
+    _ERROR_STATES,
+    _STANDBY_STATES,
     POWER_STATE_LABELS,
     _build_disk_lookup,
     _extract_hex,
@@ -99,16 +102,41 @@ class TestFormatDiskName:
 
 class TestFormatPowerState:
     def test_known_states(self) -> None:
+        assert "error" in _format_power_state(-2)
+        assert "unknown" in _format_power_state(-1)
         assert "standby" in _format_power_state(0)
         assert "idle" in _format_power_state(1)
-        assert "active/idle" in _format_power_state(2)
-        assert "unknown" in _format_power_state(-1)
+        assert "active_or_idle" in _format_power_state(2)
+        assert "idle_a" in _format_power_state(3)
+        assert "idle_b" in _format_power_state(4)
+        assert "idle_c" in _format_power_state(5)
+        assert "active" in _format_power_state(6)
+        assert "sleep" in _format_power_state(7)
 
-    def test_unknown_state_includes_value(self) -> None:
-        result = _format_power_state(3)
+    def test_unmapped_state_includes_value(self) -> None:
+        result = _format_power_state(99)
         assert "unknown state" in result
-        assert "3" in result
+        assert "99" in result
 
     def test_all_documented_states_have_labels(self) -> None:
-        for value in (-1, 0, 1, 2):
+        for value in (-2, -1, 0, 1, 2, 3, 4, 5, 6, 7):
             assert value in POWER_STATE_LABELS
+
+    def test_state_sets_cover_all_values(self) -> None:
+        """Active + standby + error sets should cover all mapped values."""
+        all_states = _ACTIVE_STATES | _STANDBY_STATES | _ERROR_STATES
+        for value in POWER_STATE_LABELS:
+            assert value in all_states, f"Value {value} not in any classification set"
+
+    def test_state_sets_are_disjoint(self) -> None:
+        assert set() == _ACTIVE_STATES & _STANDBY_STATES
+        assert set() == _ACTIVE_STATES & _ERROR_STATES
+        assert set() == _STANDBY_STATES & _ERROR_STATES
+
+    def test_standby_and_sleep_are_spun_down(self) -> None:
+        assert 0 in _STANDBY_STATES  # standby
+        assert 7 in _STANDBY_STATES  # sleep
+
+    def test_idle_and_active_are_spun_up(self) -> None:
+        for value in (1, 2, 3, 4, 5, 6):
+            assert value in _ACTIVE_STATES

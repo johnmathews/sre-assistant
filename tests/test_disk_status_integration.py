@@ -119,7 +119,7 @@ class TestHddPowerStatus:
         assert "sdf" in result
         assert "ST16000NT001" in result
         # Should show power state labels
-        assert "active/idle" in result
+        assert "active_or_idle" in result
         assert "standby" in result
         # Should NOT show raw wwn paths
         assert "/dev/disk/by-id/" not in result
@@ -217,7 +217,7 @@ class TestHddPowerStatus:
         # Should show transition with disk name and timestamp
         assert "sdc" in result
         assert "standby" in result
-        assert "active/idle" in result
+        assert "active_or_idle" in result
         assert "→" in result
         # sdf should show no change
         assert "no change" in result.lower()
@@ -319,6 +319,6 @@ class TestHddPowerStatus:
 
         result = await hdd_power_status.ainvoke({})
         # Should still show power states, just with shortened device IDs
-        assert "active/idle" in result
+        assert "active_or_idle" in result
         assert "standby" in result
         assert "wwn-0x5000c500eb02b449" in result

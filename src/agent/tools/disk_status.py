@@ -29,12 +29,26 @@ from src.config import get_settings
 logger = logging.getLogger(__name__)
 
 # Prometheus power state values (from disk-status-exporter)
+# See: https://github.com/johnmathews/disk-status-exporter
 POWER_STATE_LABELS: dict[int, str] = {
+    -2: "error",
     -1: "unknown",
     0: "standby",
     1: "idle",
-    2: "active/idle",
+    2: "active_or_idle",
+    3: "idle_a",
+    4: "idle_b",
+    5: "idle_c",
+    6: "active",
+    7: "sleep",
 }
+
+# States that mean "disk is spun up / active"
+_ACTIVE_STATES = {1, 2, 3, 4, 5, 6}
+# States that mean "disk is spun down / not spinning"
+_STANDBY_STATES = {0, 7}
+# States that are error/indeterminate
+_ERROR_STATES = {-2, -1}
 
 # Time windows for progressive changes() widening (seconds)
 TRANSITION_WINDOWS = ["1h", "6h", "24h", "7d"]
@@ -267,12 +281,14 @@ async def hdd_power_status() -> str:
 
     active_disks: list[str] = []
     standby_disks: list[str] = []
+    other_disks: list[str] = []
 
     for series in power_states:
         device_id = series.get("metric", {}).get("device_id", "unknown")
         pool = series.get("metric", {}).get("pool", "")
         value_pair = series.get("value", [0, "0"])
         power_value = float(str(value_pair[1])) if len(value_pair) > 1 else -1
+        power_int = int(power_value)
 
         # Cross-reference with TrueNAS disk inventory
         hex_key = _extract_hex(device_id)
@@ -282,10 +298,12 @@ async def hdd_power_status() -> str:
         pool_str = f" [pool: {pool}]" if pool else ""
 
         line = f"  {disk_name} — {state_label}{pool_str}"
-        if power_value == 0:
+        if power_int in _STANDBY_STATES:
             standby_disks.append(line)
-        else:
+        elif power_int in _ACTIVE_STATES:
             active_disks.append(line)
+        else:
+            other_disks.append(line)
 
     if active_disks:
         lines.append(f"Spun up ({len(active_disks)}):")
@@ -295,6 +313,11 @@ async def hdd_power_status() -> str:
             lines.append("")
         lines.append(f"In standby ({len(standby_disks)}):")
         lines.extend(standby_disks)
+    if other_disks:
+        if active_disks or standby_disks:
+            lines.append("")
+        lines.append(f"Other ({len(other_disks)}):")
+        lines.extend(other_disks)
 
     # Step 4: Get 24h change counts (always useful context)
     change_counts_24h: dict[str, int] = {}

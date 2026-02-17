@@ -65,41 +65,57 @@ to detect spinup/spindown: the `disk_power_state` metric (direct power state) an
 
 ### Primary: disk_power_state metric
 
-The `disk-status-exporter` on TrueNAS exports `disk_power_state` with labels `device_id`,
-`type` (hdd/ssd), and `pool`. Values: 0=standby, 1=idle, 2=active/idle, -1=unknown.
+The `disk-status-exporter` on TrueNAS exports `disk_power_state` as a numeric gauge with labels
+`device_id`, `device`, `type` (always `hdd` — SSDs are filtered by the exporter), and `pool`.
+
+**Power state values:**
+
+| Value | State            | Meaning                                                  |
+| ----- | ---------------- | -------------------------------------------------------- |
+| `-2`  | `error`          | smartctl returned an error                               |
+| `-1`  | `unknown`        | state could not be determined, or device is in cooldown  |
+| `0`   | `standby`        | drive is spun down (platters stopped)                    |
+| `1`   | `idle`           | generic idle (not further classified by firmware)        |
+| `2`   | `active_or_idle` | drive is active or idle (smartctl cannot distinguish)    |
+| `3`   | `idle_a`         | ACS idle_a (shallow idle, fast recovery)                 |
+| `4`   | `idle_b`         | ACS idle_b (heads unloaded)                              |
+| `5`   | `idle_c`         | ACS idle_c (heads unloaded, lower power)                 |
+| `6`   | `active`         | drive is actively performing I/O                         |
+| `7`   | `sleep`          | deepest power-saving mode (requires reset to wake)       |
+
+Classification: values 1-6 = spun up/active, 0 and 7 = spun down, -2 and -1 = error/unknown.
+
+The exporter also provides:
+- `disk_power_state_string` — always 1, with a `state` label for human-readable display
+- `disk_info` — always 1, static metadata (join on `device_id`)
+- `disk_exporter_scan_seconds` — scrape duration
+- `disk_exporter_devices_total` — device counts by category
 
 ```promql
 # Current power state of all HDDs
 disk_power_state{type="hdd"}
 
-# Check IF any HDD changed state in the last hour
-changes(disk_power_state{type="hdd"}[1h])
+# Human-readable state via label
+disk_power_state_string == 1
 
-# If changes() returns 0 for all disks, widen the window:
-changes(disk_power_state{type="hdd"}[6h])
-changes(disk_power_state{type="hdd"}[24h])
-changes(disk_power_state{type="hdd"}[7d])
+# Disks currently in standby
+disk_power_state == 0
+
+# Disks that are active or spinning (values 1-6)
+disk_power_state >= 1 and disk_power_state <= 6
+
+# State changes in the last hour
+changes(disk_power_state{type="hdd"}[1h])
 ```
 
-**Finding WHEN a disk last changed state:**
-
-PromQL has no "last change timestamp" function. Use a progressive approach:
-
-1. Use `changes(disk_power_state{type="hdd"}[1h])` — if all 0, widen to [6h], [24h], [7d]
-2. Once you find a window where `changes() > 0`, use a range query with a small step:
-   `disk_power_state{type="hdd"}` with step=15s over that window
-3. Look for adjacent data points where the value differs — that's the transition timestamp
-4. 0→non-zero = spin up, non-zero→0 = spin down
-
-**Important:** A range query returning constant values means the disk has NOT changed state in
-that window. That is valid data, not "no data" or "missing data". Only report "no data" if the
-query returns zero series (the metric doesn't exist).
+**Note:** The `hdd_power_status` composite tool handles all querying, cross-referencing, and
+transition detection automatically. Use it instead of manually chaining Prometheus queries.
 
 ### Cross-referencing disk identity
 
 The `device_id` labels in `disk_power_state` are opaque (e.g. `wwn-0x5000c500eb02b449`).
-Always cross-reference with `truenas_list_disks` (or the `disk_info` metric) to report
-human-readable disk names (model, size, serial number) instead of raw device IDs.
+The `hdd_power_status` tool automatically cross-references these with TrueNAS disk inventory
+to report human-readable disk names (model, size, serial number).
 
 ### Secondary: node_disk_io_time_seconds_total
 
@@ -119,14 +135,14 @@ increase(node_disk_io_time_seconds_total{instance=~".*truenas.*", device=~"sd[c-
 
 ### Recommended agent strategy
 
-When asked "which HDD spun up recently" or similar:
+For any HDD power state question (spinup, spindown, state changes), use the `hdd_power_status`
+tool. It handles all the complexity automatically:
 
-1. Call `truenas_list_disks` to get the disk inventory (device names, models, sizes, serial numbers)
-2. Use `prometheus_instant_query` with `disk_power_state{type="hdd"}` for current state
-3. Use `changes(disk_power_state{type="hdd"}[1h])` (widening as needed) to find recent transitions
-4. Once a window with changes is found, use `prometheus_range_query` with step=15s to pinpoint when
-5. Match the `device_id` label to TrueNAS disk names for human-readable output
-6. Filter out SSDs — they don't spin up/down
+- Queries current power state from Prometheus
+- Cross-references device IDs with TrueNAS disk inventory for human-readable names
+- Reports 24h change counts per disk
+- Uses progressive `changes()` widening (1h→6h→24h→7d) to find recent transitions
+- Pinpoints exact transition timestamps via range queries
 
 ### Related metrics
 

@@ -155,8 +155,8 @@ List apps installed on TrueNAS SCALE with their running state.
 Complete HDD power status summary: current state, human-readable disk names, and transition history.
 
 - **Input:** none
-- **Example questions:** "Which HDDs are spun up?", "What was the last HDD to spin up?", "Are the drives spun down?", "When did the HDDs last change power state?"
-- **Returns:** Per-disk power state (active/idle, standby) with model, size, serial, pool. Last power state change timestamp with from/to transition. Automatically cross-references Prometheus `disk_power_state` with TrueNAS disk inventory and uses progressive `changes()` widening to find transitions.
+- **Example questions:** "Which HDDs are spun up?", "What was the last HDD to spin up?", "Are the drives spun down?", "When did the HDDs last change power state?", "How many state changes in the last 12 hours?"
+- **Returns:** Per-disk power state (standby, idle, active_or_idle, idle_a/b/c, active, sleep, error, unknown) with model, size, serial, pool. 24-hour change counts per disk. Last power state change timestamp with from/to transition. Automatically cross-references Prometheus `disk_power_state` with TrueNAS disk inventory and uses progressive `changes()` widening to find transitions.
 
 ## Proxmox Backup Server (enabled when `PBS_URL` is set)
 
