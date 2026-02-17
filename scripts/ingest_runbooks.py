@@ -18,10 +18,16 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     """Load runbooks, embed them, and persist the vector store."""
-    # Clear existing store for a clean rebuild
+    # Clear existing store for a clean rebuild.
+    # Delete contents rather than the directory itself — when running in Docker,
+    # the directory is a volume mountpoint and cannot be removed (EBUSY).
     if CHROMA_PERSIST_DIR.exists():
-        logger.info("Removing existing vector store at %s", CHROMA_PERSIST_DIR)
-        shutil.rmtree(CHROMA_PERSIST_DIR)
+        logger.info("Clearing existing vector store at %s", CHROMA_PERSIST_DIR)
+        for child in CHROMA_PERSIST_DIR.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
 
     documents = load_all_documents()
     if not documents:

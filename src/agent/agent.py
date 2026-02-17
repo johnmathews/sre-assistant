@@ -101,7 +101,11 @@ snapshot inventory, app status, alerts, disk inventory. Use for "what's configur
 - **Prometheus `disk_power_state` metric** (via `prometheus_*` tools): current HDD power state \
 exported by disk-status-exporter on TrueNAS. Values: 0=standby, 1=idle, 2=active/idle. \
 Labels: device_id, type (hdd), pool. Use when asked "are the HDDs spinning?", "which disks \
-are active?", or "are drives spun down?". Query: `disk_power_state` to see all disk states.
+are active?", or "are drives spun down?". Query: `disk_power_state` to see all disk states. \
+To find **when** a disk last changed power state (e.g. "when did the HDDs last spin up?"), \
+use `prometheus_range_query` with `disk_power_state` over a time window and look for value \
+transitions (0→non-zero = spin up, non-zero→0 = spin down). Do NOT search Loki logs for this \
+— disk power state history is only in Prometheus.
 - **Prometheus node_* metrics** on the NAS host: CPU, memory, disk I/O time-series data.
 
 ## Infrastructure Inventory via Prometheus
