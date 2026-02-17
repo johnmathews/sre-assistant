@@ -109,6 +109,21 @@ class TruenasSmbShareEntry(TypedDict, total=False):
     purpose: str
 
 
+class TruenasSmbSessionEntry(TypedDict, total=False):
+    """A single active SMB session from /smb/status."""
+
+    session_id: int
+    server_id: dict[str, object]
+    uid: int
+    username: str
+    groupname: str
+    remote_machine: str
+    hostname: str
+    session_dialect: str
+    encryption: str
+    signing: str
+
+
 class TruenasSnapshotEntry(TypedDict, total=False):
     id: str
     name: str
@@ -298,6 +313,7 @@ def _format_shares(
     nfs_shares: list[TruenasNfsShareEntry],
     smb_shares: list[TruenasSmbShareEntry],
     share_type: str | None,
+    smb_sessions: list[TruenasSmbSessionEntry] | None = None,
 ) -> str:
     """Format NFS and SMB shares into a readable string."""
     lines: list[str] = []
@@ -332,6 +348,29 @@ def _format_shares(
             ro_str = ", read-only" if ro else ""
             comment_str = f" — {comment}" if comment else ""
             lines.append(f"  {name} -> {path} ({status}{ro_str}){comment_str}")
+
+    if smb_sessions is not None:
+        lines.append(f"\nActive SMB sessions ({len(smb_sessions)}):")
+        if not smb_sessions:
+            lines.append("  (none)")
+        for session in smb_sessions:
+            username = session.get("username", "?")
+            hostname = session.get("hostname", "")
+            remote = session.get("remote_machine", "?")
+            dialect = session.get("session_dialect", "")
+            encryption = session.get("encryption", "")
+            signing = session.get("signing", "")
+
+            host_str = hostname if hostname else remote
+            details: list[str] = []
+            if dialect:
+                details.append(f"dialect={dialect}")
+            if encryption:
+                details.append(f"encrypt={encryption}")
+            if signing:
+                details.append(f"sign={signing}")
+            detail_str = f" ({', '.join(details)})" if details else ""
+            lines.append(f"  {username}@{host_str}{detail_str}")
 
     return "\n".join(lines)
 
@@ -504,6 +543,14 @@ class ListSharesInput(BaseModel):
         default=None,
         description="Filter by share type: 'nfs' or 'smb'. Omit to list both.",
     )
+    include_sessions: bool = Field(
+        default=False,
+        description=(
+            "Include active SMB sessions (connected clients). "
+            "Set to true when asking about active connections, who is connected, "
+            "or which shares have active sessions."
+        ),
+    )
 
 
 class SnapshotsInput(BaseModel):
@@ -548,12 +595,14 @@ TOOL_DESCRIPTION_POOL_STATUS = (
 )
 
 TOOL_DESCRIPTION_LIST_SHARES = (
-    "List NFS and SMB shares configured on TrueNAS. "
+    "List NFS and SMB shares configured on TrueNAS, and optionally show active SMB sessions. "
     "Use this to answer questions like 'what NFS shares exist?', "
     "'is the paperless share enabled?', 'which SMB shares are configured?', "
+    "'who is connected to the NAS?', 'which shares have active sessions?', "
     "or 'show all NAS shares'.\n\n"
     "Returns share path, enabled/disabled status, read-only flag, "
-    "allowed networks/hosts, and comments. Can filter by NFS or SMB."
+    "allowed networks/hosts, and comments. Can filter by NFS or SMB.\n\n"
+    "Set include_sessions=true for questions about active connections or connected clients."
 )
 
 TOOL_DESCRIPTION_SNAPSHOTS = (
@@ -619,16 +668,20 @@ truenas_pool_status.handle_tool_error = True
 
 
 @tool("truenas_list_shares", args_schema=ListSharesInput)  # pyright: ignore[reportUnknownParameterType]
-async def truenas_list_shares(share_type: str | None = None) -> str:
+async def truenas_list_shares(
+    share_type: str | None = None,
+    include_sessions: bool = False,
+) -> str:
     """List NFS and SMB shares. See TOOL_DESCRIPTION_LIST_SHARES."""
     settings = get_settings()
     if not settings.truenas_url:
         raise ToolException("TrueNAS is not configured (TRUENAS_URL is empty).")
 
-    logger.info("Listing TrueNAS shares (type=%s)", share_type)
+    logger.info("Listing TrueNAS shares (type=%s, include_sessions=%s)", share_type, include_sessions)
 
     nfs_shares: list[TruenasNfsShareEntry] = []
     smb_shares: list[TruenasSmbShareEntry] = []
+    smb_sessions: list[TruenasSmbSessionEntry] | None = None
 
     try:
         if share_type in (None, "nfs"):
@@ -638,6 +691,14 @@ async def truenas_list_shares(share_type: str | None = None) -> str:
         if share_type in (None, "smb"):
             smb_raw = await _truenas_get("/sharing/smb")
             smb_shares = smb_raw if isinstance(smb_raw, list) else []
+
+        if include_sessions and share_type != "nfs":
+            try:
+                sessions_raw = await _truenas_get("/smb/status")
+                smb_sessions = sessions_raw if isinstance(sessions_raw, list) else []
+            except (httpx.HTTPStatusError, httpx.ConnectError):
+                logger.warning("Could not fetch SMB sessions from /smb/status")
+                smb_sessions = []
     except httpx.ConnectError as e:
         raise ToolException(f"Cannot connect to TrueNAS at {settings.truenas_url}: {e}") from e
     except httpx.TimeoutException as e:
@@ -645,7 +706,7 @@ async def truenas_list_shares(share_type: str | None = None) -> str:
     except httpx.HTTPStatusError as e:
         raise ToolException(f"TrueNAS API error: HTTP {e.response.status_code} - {e.response.text[:500]}") from e
 
-    return _format_shares(nfs_shares, smb_shares, share_type)
+    return _format_shares(nfs_shares, smb_shares, share_type, smb_sessions)
 
 
 truenas_list_shares.description = TOOL_DESCRIPTION_LIST_SHARES

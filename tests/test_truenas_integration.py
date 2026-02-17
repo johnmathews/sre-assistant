@@ -167,6 +167,57 @@ class TestTruenasListShares:
         auth_header = route.calls.last.request.headers["authorization"]
         assert auth_header.startswith("Bearer ")
 
+    @respx.mock
+    async def test_include_sessions(self) -> None:
+        """include_sessions=true fetches active SMB sessions."""
+        respx.get(f"{BASE}/sharing/nfs").mock(return_value=httpx.Response(200, json=[]))
+        respx.get(f"{BASE}/sharing/smb").mock(
+            return_value=httpx.Response(
+                200,
+                json=[{"name": "media", "path": "/mnt/tank/media", "enabled": True}],
+            )
+        )
+        respx.get(f"{BASE}/smb/status").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "session_id": 1,
+                        "username": "john",
+                        "remote_machine": "192.168.2.50",
+                        "hostname": "johns-macbook",
+                        "session_dialect": "SMB3_11",
+                        "encryption": "-",
+                        "signing": "AES-128-GMAC",
+                    },
+                ],
+            )
+        )
+
+        result = await truenas_list_shares.ainvoke({"include_sessions": True})
+        assert "Active SMB sessions (1)" in result
+        assert "john@johns-macbook" in result
+        assert "SMB3_11" in result
+
+    @respx.mock
+    async def test_sessions_without_flag_omitted(self) -> None:
+        """Sessions are not fetched when include_sessions is false (default)."""
+        respx.get(f"{BASE}/sharing/nfs").mock(return_value=httpx.Response(200, json=[]))
+        respx.get(f"{BASE}/sharing/smb").mock(return_value=httpx.Response(200, json=[]))
+
+        result = await truenas_list_shares.ainvoke({})
+        assert "Active SMB sessions" not in result
+
+    @respx.mock
+    async def test_sessions_endpoint_failure_graceful(self) -> None:
+        """If /smb/status returns an error, sessions degrade gracefully."""
+        respx.get(f"{BASE}/sharing/nfs").mock(return_value=httpx.Response(200, json=[]))
+        respx.get(f"{BASE}/sharing/smb").mock(return_value=httpx.Response(200, json=[]))
+        respx.get(f"{BASE}/smb/status").mock(return_value=httpx.Response(404, text="Not Found"))
+
+        result = await truenas_list_shares.ainvoke({"include_sessions": True})
+        assert "Active SMB sessions (0)" in result
+
 
 @pytest.mark.integration
 class TestTruenasSnapshots:
