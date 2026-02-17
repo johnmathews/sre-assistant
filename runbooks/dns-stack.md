@@ -65,6 +65,29 @@ systemctl restart unbound
 make adguard
 ```
 
+## Prometheus Metrics
+
+AdGuard Home exposes metrics on its API. Unbound stats are available via `unbound-control`.
+
+```promql
+# AdGuard LXC host health
+up{instance=~".*111.*"}
+
+# CPU/memory on the DNS LXC
+rate(node_cpu_seconds_total{instance=~".*111.*", mode!="idle"}[5m])
+node_memory_MemAvailable_bytes{instance=~".*111.*"}
+```
+
+### Agent strategy for DNS performance questions
+
+DNS latency and query stats are not directly in Prometheus. Use this multi-step approach:
+
+1. Check LXC is up: `up{instance=~".*111.*"}`
+2. Check Loki for AdGuard/Unbound errors: `{hostname=~".*adguard.*"} |= "error"`
+3. For cache hit ratio, the agent cannot query directly — advise the user to check:
+   - AdGuard web UI (http://192.168.2.111) → Query Log and Statistics
+   - `ssh adguard && unbound-control stats_noreset | grep cache`
+
 ## Troubleshooting
 
 ### DNS resolution fails for all clients

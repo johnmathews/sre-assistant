@@ -41,6 +41,32 @@ systemctl restart cloudflared
 make cloudflared
 ```
 
+## Prometheus Metrics
+
+cloudflared itself does not expose Prometheus metrics by default. Monitor tunnel health indirectly:
+
+```promql
+# LXC host health (192.168.2.101)
+up{instance=~".*101.*"}
+
+# CPU/memory on the cloudflared LXC
+rate(node_cpu_seconds_total{instance=~".*101.*", mode!="idle"}[5m])
+node_memory_MemAvailable_bytes{instance=~".*101.*"}
+
+# Network traffic through the tunnel LXC (spikes = traffic flowing)
+rate(node_network_receive_bytes_total{instance=~".*101.*", device!="lo"}[5m])
+rate(node_network_transmit_bytes_total{instance=~".*101.*", device!="lo"}[5m])
+```
+
+### Agent strategy for "is the tunnel healthy?"
+
+1. Check if the LXC is up via `up{instance=~".*101.*"}`
+2. Check network traffic — zero transmit bytes for 5+ minutes suggests tunnel is down or idle
+3. Use Loki to check cloudflared service logs: `{hostname=~".*cloudflared.*"} |= "error"` or
+   `{hostname=~".*cloudflared.*"} |= "reconnect"`
+4. Cross-reference with Traefik — if Traefik shows no incoming requests but services are healthy,
+   the tunnel may be the bottleneck
+
 ## Troubleshooting
 
 ### Services unreachable from internet

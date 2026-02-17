@@ -52,6 +52,35 @@ curl -s -k https://192.168.2.104/api/v2.0/sharing/nfs \
   -H "Authorization: Bearer $TRUENAS_API_KEY" | jq '.[] | {id, path, enabled}'
 ```
 
+## Prometheus Metrics
+
+```promql
+# TrueNAS host health
+up{instance=~".*truenas.*"}
+
+# Pool capacity — ZFS datasets are exported as filesystem metrics by node_exporter
+node_filesystem_size_bytes{instance=~".*truenas.*", mountpoint=~"/mnt/tank.*|/mnt/swift.*"}
+node_filesystem_avail_bytes{instance=~".*truenas.*", mountpoint=~"/mnt/tank.*|/mnt/swift.*"}
+
+# Pool usage percentage
+100 - (node_filesystem_avail_bytes{instance=~".*truenas.*", mountpoint=~"/mnt/tank.*"} /
+       node_filesystem_size_bytes{instance=~".*truenas.*", mountpoint=~"/mnt/tank.*"} * 100)
+
+# Disk IO — see disk-management runbook for spinup/spindown detection
+rate(node_disk_io_time_seconds_total{instance=~".*truenas.*"}[5m])
+
+# Memory (ZFS ARC uses most of it — high memory usage is normal)
+node_memory_MemTotal_bytes{instance=~".*truenas.*"}
+node_memory_MemAvailable_bytes{instance=~".*truenas.*"}
+```
+
+### ZFS capacity guidance
+
+- ZFS performance degrades significantly above **80% capacity** — plan expansion before then
+- `tank` pool: mirrored 16TB HDDs = ~14TB usable (after mirror + ZFS overhead)
+- `swift` pool: SSD — capacity depends on SSD size
+- Use `truenas_dataset_usage` tool for per-dataset breakdown
+
 ## Common Operations
 
 ### Toggle an NFS share (enable/disable)

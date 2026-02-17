@@ -6,6 +6,9 @@ Quiet hours is not currently in use. It was developed to investigate reliable HD
 hours but added complexity without sufficient benefit. The system is fully implemented and tested but all timers are
 disabled.
 
+It was disabled because the added operational complexity (share toggling, container pausing, Uptime Kuma integration,
+SABnzbd detection) outweighed the benefit of HDD spindown. The homelab runs fine with HDDs spinning continuously.
+
 This runbook is retained for reference in case quiet hours is re-enabled.
 
 ## Purpose

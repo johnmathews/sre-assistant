@@ -57,6 +57,56 @@ rate(node_disk_written_bytes_total[5m])
 rate(node_disk_io_time_seconds_total[5m])
 ```
 
+## HDD Spinup / Spindown Detection
+
+TrueNAS HDDs spin down when idle and spin up on access. To determine which disk spun up most
+recently, use Prometheus disk IO metrics from node_exporter on the TrueNAS host.
+
+### Which HDD had activity most recently?
+
+Use `node_disk_io_time_seconds_total` — this counter only increases when a disk is actively
+doing IO. A disk that was spun down will show zero increase; a disk that just spun up will
+show a non-zero increase over a short window.
+
+```promql
+# IO time increase per disk in the last 1 hour (non-zero = disk was active)
+increase(node_disk_io_time_seconds_total{instance=~".*truenas.*"}[1h])
+
+# Narrow to just HDDs by filtering to known HDD devices (sd[c-h] typically)
+# Cross-reference device names with truenas_list_disks output
+increase(node_disk_io_time_seconds_total{instance=~".*truenas.*", device=~"sd[c-h]"}[1h])
+
+# Check shorter windows to find the MOST recent spinup
+# Try 5m, 15m, 30m, 1h — the shortest window with non-zero results
+# identifies the most recently active disk
+increase(node_disk_io_time_seconds_total{instance=~".*truenas.*", device=~"sd[c-h]"}[5m])
+```
+
+### Recommended agent strategy
+
+When asked "which HDD spun up recently" or similar:
+
+1. Call `truenas_list_disks` to get the disk inventory (device names, models, sizes, serial numbers)
+2. Use `prometheus_query` with increasingly short time windows (1h → 30m → 15m → 5m) on
+   `increase(node_disk_io_time_seconds_total{instance=~".*truenas.*"}[<window>])` to find
+   which disk(s) had IO most recently
+3. Match the `device` label from Prometheus to the device name from TrueNAS to report the
+   disk model, size, and serial number
+4. Filter out SSDs (sdb, sdd, sdg — or check the `type` field from `truenas_list_disks`) since
+   SSDs don't spin up/down
+
+### Related metrics
+
+```promql
+# Bytes read/written per disk (confirms what kind of activity)
+rate(node_disk_read_bytes_total{instance=~".*truenas.*"}[5m])
+rate(node_disk_written_bytes_total{instance=~".*truenas.*"}[5m])
+
+# Disk IO operations (reads + writes)
+rate(node_disk_reads_completed_total{instance=~".*truenas.*"}[5m])
+rate(node_disk_writes_completed_total{instance=~".*truenas.*"}[5m])
+```
+
 ## Troubleshooting
 
 ### High disk usage alert

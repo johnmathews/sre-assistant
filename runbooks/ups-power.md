@@ -38,6 +38,39 @@ systemctl status nut-monitor
 journalctl -u nut-monitor -n 50
 ```
 
+## Prometheus Metrics
+
+NUT metrics are available if the `nut_exporter` or Proxmox node_exporter NUT integration is configured.
+
+```promql
+# UPS status (1 = online/OL, 0 = on battery/OB)
+# Metric name depends on exporter — common patterns:
+nut_ups_status{ups="ups"}
+network_ups_tools_ups_status{flag="OL"}
+
+# Battery charge percentage
+nut_battery_charge{ups="ups"}
+network_ups_tools_battery_charge
+
+# Battery runtime remaining (seconds)
+nut_battery_runtime_seconds{ups="ups"}
+network_ups_tools_battery_runtime_seconds
+
+# Input voltage
+nut_input_voltage{ups="ups"}
+```
+
+### Agent strategy for UPS questions
+
+If NUT metrics are not in Prometheus, the agent cannot answer UPS questions directly.
+In that case, advise the user to check manually:
+
+```sh
+ssh pve && upsc ups@localhost
+```
+
+Key values: `ups.status` (OL=online, OB=on battery), `battery.charge` (%), `battery.runtime` (seconds).
+
 ## Configuration
 
 NUT config files on Proxmox:

@@ -3,14 +3,15 @@
 ## Purpose
 
 Hosts media services (qBittorrent, Jellyfin, etc.) with Mullvad VPN for privacy. Media files are stored on TrueNAS and
-mounted via SMB shares.
+mounted via NFS shares.
 
 ## Architecture
 
-- Media files live on TrueNAS NFS/SMB shares, not on the VM itself
-- SMB credentials stored at `/etc/smb-media-credentials`
+- Media files live on TrueNAS NFS shares, not on the VM itself
+- NFS mounts configured in `/etc/fstab` with `nofail,_netdev,x-systemd.automount` options
 - PUID/GUID must match TrueNAS dataset permissions (configured in `roles/media_vm/defaults/main.yml`)
 - Mullvad VPN protects outbound traffic (account number in 1Password)
+- Jellyfin exposed publicly via Cloudflare Tunnel → Traefik with rate limiting
 
 ## Key Commands
 
@@ -27,29 +28,55 @@ docker ps
 - If auth breaks, check logs for temporary password: `docker compose logs qbittorrent`
 - Template config file contains the correct password hash
 
-### Check SMB mount health
+### Check NFS mount health
 
 ```sh
-mount | grep cifs
-ls /mnt/media/
+mount | grep nfs
+findmnt -t nfs4
+ls /mnt/nfs/media/
+```
+
+## Prometheus Metrics
+
+```promql
+# Container status (running = 1, stopped = 0) — check via cAdvisor or Docker metrics
+# Filter for media VM containers
+container_last_seen{instance=~".*media.*", name=~"qbittorrent|jellyfin|mullvad"}
+
+# NFS mount health via share drive probe
+share_drive_probe_success{instance=~".*media.*"}
+
+# Network I/O (useful for checking VPN throughput)
+rate(node_network_receive_bytes_total{instance=~".*media.*", device!="lo"}[5m])
+rate(node_network_transmit_bytes_total{instance=~".*media.*", device!="lo"}[5m])
 ```
 
 ## Troubleshooting
 
 ### qBittorrent can't access media files
 
-1. Check SMB mount: `mount | grep cifs`
+1. Check NFS mount: `mount | grep nfs` and `findmnt -t nfs4`
 2. Verify PUID/GUID in docker compose matches TrueNAS user
-3. Check TrueNAS SMB share is enabled
-4. During quiet hours, shares may be disabled — check quiet hours status
+3. Check TrueNAS NFS share is enabled (see truenas-storage runbook for API toggle)
+4. If mount is stale, see nfs-smb-shares runbook for recovery steps
 
 ### VPN not connected
 
-1. Check Mullvad container logs
-2. Verify account is active (check 1Password for account number)
+1. Check Mullvad container logs: `docker compose logs mullvad`
+2. Test VPN connectivity: `docker exec mullvad curl https://am.i.mullvad.net/connected`
+3. Verify account is active (check 1Password for account number)
+4. Check if the VPN container is healthy: `docker inspect --format='{{.State.Health.Status}}' mullvad`
+
+### Jellyfin not reachable from internet
+
+1. Verify cloudflared tunnel is up (see cloudflared-tunnel runbook)
+2. Check Traefik is routing to Jellyfin (see traefik-reverse-proxy runbook)
+3. Test Jellyfin directly from the media VM: `curl http://localhost:8096`
+4. Check Jellyfin container logs: `docker compose logs jellyfin`
 
 ## Related Services
 
-- TrueNAS (SMB shares for media storage)
-- Quiet hours (pauses/stops media containers at night)
+- TrueNAS (NFS shares for media storage)
+- NFS/SMB shares runbook (mount health and recovery)
 - Cloudflare Tunnel + Traefik (Jellyfin public access)
+- Quiet hours (currently disabled — was used to pause containers at night)
