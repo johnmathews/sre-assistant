@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     proxmox_ca_cert: str = ""
     proxmox_node: str = "proxmox"
 
+    # TrueNAS SCALE API (optional — empty string means not configured)
+    truenas_url: str = ""
+    truenas_api_key: str = ""
+    truenas_verify_ssl: bool = False
+    truenas_ca_cert: str = ""
+
     # Loki API (optional — empty string means not configured)
     loki_url: str = ""
 

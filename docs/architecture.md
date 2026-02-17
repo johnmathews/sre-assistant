@@ -10,26 +10,26 @@ base to answer operational questions about a Proxmox homelab with 80+ services.
 The agent uses two distinct data access patterns:
 
 ```
-                    User Question
-                         |
-                    FastAPI /ask
-                         |
-                  LangChain Agent
-                   (tool router)
-                /    |    |    \
-               /     |    |     \
-  Live Metrics    Logs   RAG    Infrastructure
-       |           |   Retrieval     |
-       v           v      |         v
-+-----------+ +------+    v    +-----------+
-|Prometheus | | Loki | +-----+ |Proxmox VE |
-| (metrics) | |(logs)| |Chroma| | (config)  |
-+-----------+ +------+ |Vector| +-----------+
-+-----------+           |Store | +-----------+
-|  Grafana  |           +-----+ |    PBS    |
-| (alerts)  |             |     | (backups) |
-+-----------+          Runbooks +-----------+
-                       Playbooks
+                         User Question
+                              |
+                         FastAPI /ask
+                              |
+                       LangChain Agent
+                        (tool router)
+                  /     |      |      \
+                 /      |      |       \
+     Live Metrics    Logs    RAG    Infrastructure
+          |           |    Retrieval      |
+          v           v       |           v
+    +-----------+ +------+    v     +-----------+
+    |Prometheus | | Loki | +-----+  |Proxmox VE |
+    | (metrics) | |(logs)| |Chroma| +-----------+
+    +-----------+ +------+ |Vector| +-----------+
+    +-----------+          |Store | |    PBS    |
+    |  Grafana  |          +-----+  +-----------+
+    | (alerts)  |            |      +-----------+
+    +-----------+         Runbooks  | TrueNAS  |
+                          Playbooks +-----------+
 ```
 
 ### Live Tool Calls
@@ -39,6 +39,7 @@ Structured API queries executed in real-time. Used for questions about current s
 - **Prometheus** (`prometheus_*` tools) — metrics: CPU, memory, disk, network, custom exporters
 - **Grafana** (`grafana_*` tools) — alert states, alert rule definitions
 - **Loki** (`loki_*` tools) — application logs, error search, change correlation timelines
+- **TrueNAS SCALE** (`truenas_*` tools) — ZFS pools, NFS/SMB shares, snapshots, system status, apps
 - **Proxmox VE** (`proxmox_*` tools) — VM/container config, node status, tasks
 - **PBS** (`pbs_*` tools) — backup storage, backup groups, backup tasks
 
@@ -64,6 +65,8 @@ HomeLab SRE Assistant
   |
   +-- Loki (optional — log aggregation, collected by Alloy)
   |
+  +-- TrueNAS SCALE API (optional — ZFS pools, shares, snapshots, apps)
+  |
   +-- Proxmox VE API (optional — VM/container management)
   |
   +-- Proxmox Backup Server API (optional — backup status)
@@ -72,7 +75,7 @@ HomeLab SRE Assistant
 ```
 
 Required: OpenAI API, Prometheus, Grafana.
-Optional: Loki, Proxmox VE, PBS (tools are conditionally registered based on config).
+Optional: TrueNAS, Loki, Proxmox VE, PBS (tools are conditionally registered based on config).
 Local: Chroma vector store (rebuilt via `make ingest`).
 
 ## Request Lifecycle
@@ -93,8 +96,8 @@ the agent to report failures gracefully to the user.
 ## Configuration
 
 Settings are loaded from environment variables via `pydantic-settings`. The `Settings` class in `src/config.py` defines
-all configuration with sensible defaults. Optional integrations (Loki, Proxmox VE, PBS) default to empty strings, which
-disables their tools.
+all configuration with sensible defaults. Optional integrations (TrueNAS, Loki, Proxmox VE, PBS) default to empty
+strings, which disables their tools.
 
 ## Deployment Plan
 
@@ -163,6 +166,7 @@ All secrets are managed via Ansible Vault, consistent with the rest of the homel
 | `GRAFANA_SERVICE_ACCOUNT_TOKEN` | Ansible Vault | `.env` template |
 | `PROXMOX_API_TOKEN` | Ansible Vault | `.env` template |
 | `PBS_API_TOKEN` | Ansible Vault | `.env` template |
+| `TRUENAS_API_KEY` | Ansible Vault | `.env` template |
 
 ### RAG Document Sources
 

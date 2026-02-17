@@ -1,6 +1,6 @@
 # Tool Reference
 
-The agent has up to 16 tools across 6 categories. Tools are conditionally registered based on configuration.
+The agent has up to 21 tools across 7 categories. Tools are conditionally registered based on configuration.
 
 ## Prometheus (always enabled)
 
@@ -105,6 +105,48 @@ List recent Proxmox tasks (migrations, backups, snapshots, etc).
 - **Input:** `limit` (int, default 20), `errors_only` (bool, default false)
 - **Example questions:** "Any recent failed tasks?", "Is a migration running?"
 - **Returns:** Task type, status, user, start/end time, guest ID
+
+## TrueNAS SCALE (enabled when `TRUENAS_URL` is set)
+
+### truenas_pool_status
+
+Get ZFS pool health and dataset space usage from TrueNAS.
+
+- **Input:** none
+- **Example questions:** "Is the tank pool healthy?", "How much space is left on the NAS?", "Any degraded pools?"
+- **Returns:** Pool status (ONLINE/DEGRADED/FAULTED), health flag, size/used/free space, top-level dataset usage
+
+### truenas_list_shares
+
+List NFS and SMB shares configured on TrueNAS.
+
+- **Input:** `share_type` (optional: "nfs" or "smb")
+- **Example questions:** "What NFS shares exist?", "Is the paperless share enabled?", "Which SMB shares are configured?"
+- **Returns:** Share path, enabled/disabled status, read-only flag, allowed networks/hosts, comments
+
+### truenas_snapshots
+
+List ZFS snapshots, snapshot schedules, and replication tasks on TrueNAS.
+
+- **Input:** `dataset` (optional filter, e.g. "tank/media"), `limit` (int, default 50)
+- **Example questions:** "When was the last snapshot of tank/media?", "Is replication running?", "What snapshot schedules exist?"
+- **Returns:** Recent snapshots, periodic snapshot task schedules with retention, replication task status
+
+### truenas_system_status
+
+Get TrueNAS system information, alerts, running jobs, and disk inventory.
+
+- **Input:** none
+- **Example questions:** "Any TrueNAS alerts?", "What version is TrueNAS running?", "What disks does TrueNAS have?"
+- **Returns:** Version, hostname, uptime, hardware, active alerts, running jobs with progress, disk inventory
+
+### truenas_apps
+
+List apps installed on TrueNAS SCALE with their running state.
+
+- **Input:** none
+- **Example questions:** "What apps are running on TrueNAS?", "Is Alloy running?", "Is the disk-status-exporter deployed?"
+- **Returns:** App name, state (RUNNING/STOPPED/DEPLOYING), version, upgrade availability
 
 ## Proxmox Backup Server (enabled when `PBS_URL` is set)
 

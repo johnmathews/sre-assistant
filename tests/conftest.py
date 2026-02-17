@@ -53,6 +53,10 @@ def mock_settings() -> Generator[Any]:
             "pbs_node": "localhost",
             "pbs_default_datastore": "backups",
             "loki_url": "http://loki.test:3100",
+            "truenas_url": "https://truenas.test",
+            "truenas_api_key": "1-fake-truenas-api-key",
+            "truenas_verify_ssl": False,
+            "truenas_ca_cert": "",
         },
     )()
     with (
@@ -62,6 +66,7 @@ def mock_settings() -> Generator[Any]:
         patch("src.agent.tools.proxmox.get_settings", return_value=fake_settings),
         patch("src.agent.tools.pbs.get_settings", return_value=fake_settings),
         patch("src.agent.tools.loki.get_settings", return_value=fake_settings),
+        patch("src.agent.tools.truenas.get_settings", return_value=fake_settings),
         patch("src.agent.agent.get_settings", return_value=fake_settings),
         patch("src.agent.retrieval.embeddings.get_settings", return_value=fake_settings),
         patch("src.api.main.get_settings", return_value=fake_settings),

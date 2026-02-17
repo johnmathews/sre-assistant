@@ -25,6 +25,13 @@ from src.agent.tools.proxmox import (
     proxmox_list_tasks,
     proxmox_node_status,
 )
+from src.agent.tools.truenas import (
+    truenas_apps,
+    truenas_list_shares,
+    truenas_pool_status,
+    truenas_snapshots,
+    truenas_system_status,
+)
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -59,6 +66,13 @@ You have access to live infrastructure tools and a knowledge base of operational
 - `pbs_list_backups` — backup groups showing last backup time and snapshot count per guest
 - `pbs_list_tasks` — recent PBS tasks (backup jobs, GC, verification)
 
+**For TrueNAS NAS** (storage, shares, snapshots, replication, apps):
+- `truenas_pool_status` — ZFS pool health and dataset space usage
+- `truenas_list_shares` — NFS and SMB share configuration
+- `truenas_snapshots` — ZFS snapshots, snapshot schedules, replication tasks
+- `truenas_system_status` — TrueNAS version, alerts, running jobs, disk inventory
+- `truenas_apps` — installed TrueNAS apps with running state
+
 **For logs** (application logs, errors, container lifecycle events):
 - `loki_query_logs` — query log lines using LogQL (general-purpose log search)
 - `loki_list_label_values` — discover available hostnames, services, containers, log levels
@@ -77,6 +91,18 @@ config, hardware assignments, or recent PVE operations.
 (CPU %, memory %, disk I/O, network traffic), historical trends, alerting thresholds. Use when \
 asked about performance over time or current utilization.
 - **PBS tools** (`pbs_*`): backup-specific questions (space left, last backup time, failed jobs).
+
+## TrueNAS API vs Prometheus Metrics
+
+Both provide NAS information but serve different purposes:
+- **TrueNAS API tools** (`truenas_*`): configuration and state — pool health, share definitions, \
+snapshot inventory, app status, alerts, disk inventory. Use for "what's configured?" and \
+"what's the current state?"
+- **Prometheus `disk_power_state` metric** (via `prometheus_*` tools): current HDD power state \
+exported by disk-status-exporter on TrueNAS. Values: 0=standby, 1=idle, 2=active/idle. \
+Labels: device_id, type (hdd), pool. Use when asked "are the HDDs spinning?", "which disks \
+are active?", or "are drives spun down?". Query: `disk_power_state` to see all disk states.
+- **Prometheus node_* metrics** on the NAS host: CPU, memory, disk I/O time-series data.
 
 ## Infrastructure Inventory via Prometheus
 
@@ -116,6 +142,9 @@ Use these patterns when constructing Prometheus queries:
 - `pve_*` — pve_exporter (Proxmox guest metrics: `pve_cpu_usage_ratio`, \
 `pve_memory_usage_bytes`, `pve_disk_usage_bytes`, `pve_up`)
 - `mktxp_*` — MikroTik router metrics
+- `disk_power_state` — disk-status-exporter on TrueNAS (HDD power state: 0=standby, \
+1=idle, 2=active/idle, -1=unknown)
+- `disk_info` — disk-status-exporter (disk identity info, always 1). Labels: device_id, type, pool
 
 ## Loki Log Querying
 
@@ -142,6 +171,9 @@ Logs are collected by Alloy from Docker containers and some systemd journal unit
 - "What changed before this alert?" — pass the alert's firing time as reference_time
 - "What happened around 2pm?" — pass the ISO timestamp
 - "Show me what went wrong on infra" — use hostname filter with reference_time="now"
+
+TrueNAS runs Alloy as an app, so TrueNAS app logs (containers) are available in Loki.
+Use `hostname` matching the TrueNAS host and `service_name` matching the app name to find logs.
 
 ## Guidelines
 
@@ -182,6 +214,20 @@ def _get_tools() -> list[BaseTool]:
         )
     else:
         logger.info("Proxmox VE tools disabled — PROXMOX_URL not set")
+
+    # TrueNAS SCALE tools — only if configured
+    if settings.truenas_url:
+        tools.extend(
+            [
+                truenas_pool_status,
+                truenas_list_shares,
+                truenas_snapshots,
+                truenas_system_status,
+                truenas_apps,
+            ]
+        )
+    else:
+        logger.info("TrueNAS tools disabled — TRUENAS_URL not set")
 
     # Loki log tools — only if configured
     if settings.loki_url:

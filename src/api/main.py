@@ -161,6 +161,28 @@ async def health() -> HealthResponse:
         except Exception as exc:
             components.append(ComponentHealth(name="loki", status="unhealthy", detail=str(exc)))
 
+    # --- TrueNAS SCALE (optional) ---
+    if settings.truenas_url:
+        try:
+            verify: bool = settings.truenas_verify_ssl
+            async with httpx.AsyncClient(timeout=5.0, verify=verify) as client:
+                resp = await client.get(
+                    f"{settings.truenas_url}/api/v2.0/core/ping",
+                    headers={"Authorization": f"Bearer {settings.truenas_api_key}"},
+                )
+                if resp.status_code == 200:
+                    components.append(ComponentHealth(name="truenas", status="healthy"))
+                else:
+                    components.append(
+                        ComponentHealth(
+                            name="truenas",
+                            status="unhealthy",
+                            detail=f"HTTP {resp.status_code}",
+                        )
+                    )
+        except Exception as exc:
+            components.append(ComponentHealth(name="truenas", status="unhealthy", detail=str(exc)))
+
     # --- Proxmox VE (optional) ---
     if settings.proxmox_url:
         try:

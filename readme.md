@@ -1,8 +1,8 @@
 # HomeLab SRE Assistant
 
 An AI-powered Site Reliability Engineering assistant for homelab infrastructure, built with LangChain. It connects to
-live infrastructure telemetry (Prometheus, Grafana, Loki, Proxmox VE, PBS) and a RAG knowledge base (runbooks, Ansible
-playbooks) to answer operational questions, explain alerts, correlate changes, and generate incident reports.
+live infrastructure telemetry (Prometheus, Grafana, Loki, Proxmox VE, PBS, TrueNAS) and a RAG knowledge base (runbooks,
+Ansible playbooks) to answer operational questions, explain alerts, correlate changes, and generate incident reports.
 
 ---
 
@@ -176,6 +176,8 @@ Create a `.env` file on the deployment host. See `.env.example` for the full lis
 
 | Variable              | Enables                     |
 | --------------------- | --------------------------- |
+| `TRUENAS_URL`         | TrueNAS SCALE tools (5 tools) |
+| `TRUENAS_API_KEY`     | TrueNAS API auth (Bearer token) |
 | `PROXMOX_URL`         | Proxmox VE tools (4 tools)  |
 | `PROXMOX_API_TOKEN`   | PVE API auth                |
 | `PBS_URL`             | PBS backup tools (3 tools)  |
@@ -321,9 +323,10 @@ Live Sources (LangChain Tools)       Knowledge Base (RAG)
 ├── Prometheus API                   ├── Runbooks (.md)
 ├── Grafana Alerting API             ├── Ansible playbooks & inventory
 ├── Loki API (optional)              └── Past incident summaries
-├── Proxmox VE API (optional)               ↓
-├── PBS API (optional)               Vector Store (Chroma)
-│                                           ↓
+├── TrueNAS SCALE API (optional)            ↓
+├── Proxmox VE API (optional)        Vector Store (Chroma)
+├── PBS API (optional)                      ↓
+│                                           │
 └──────────────┬────────────────────────────┘
                ↓
         LangChain Agent
@@ -344,14 +347,15 @@ to use based on the question.
 
 ## Current Capabilities
 
-The assistant has **up to 16 tools** across 6 categories, depending on which integrations are configured:
+The assistant has **up to 21 tools** across 7 categories, depending on which integrations are configured:
 
 **Always available (6 tools):**
 - Prometheus — metric search, instant queries, range queries (3 tools)
 - Grafana — active alerts, alert rule definitions (2 tools)
 - Runbook RAG — semantic search over operational runbooks (1 tool)
 
-**Available when configured (10 tools):**
+**Available when configured (15 tools):**
+- TrueNAS SCALE — pool health, NFS/SMB shares, snapshots/replication, system status/alerts/disks, apps (5 tools, requires `TRUENAS_URL`)
 - Proxmox VE — guest listing, guest config, node status, task history (4 tools, requires `PROXMOX_URL`)
 - PBS — datastore status, backup groups, task history (3 tools, requires `PBS_URL`)
 - Loki — log queries, label discovery, change correlation timelines (3 tools, requires `LOKI_URL`)
@@ -363,6 +367,9 @@ The assistant has **up to 16 tools** across 6 categories, depending on which int
 - "What errors appeared in the last hour?"
 - "Show me backup status for the PBS datastore"
 - "What containers are running on the Proxmox node?"
+- "Is the tank pool healthy? How much space is left?"
+- "What apps are running on TrueNAS?"
+- "Are the HDDs spun down?"
 
 **Artifacts it can generate:**
 - Root cause analysis (RCA) drafts
@@ -531,9 +538,13 @@ The project is built incrementally, with each phase producing a working, demonst
 10. ~~**Design documentation** — `docs/architecture.md`, `docs/tool-reference.md`, `docs/code-flow.md`,
     `docs/dependencies.md`.~~
 
+11. ~~**TrueNAS SCALE tools** — `src/agent/tools/truenas.py`: 5 tools for ZFS pool health, NFS/SMB shares, snapshots/
+    replication, system status/alerts/disks, and apps. Conditional registration (only when `TRUENAS_URL` is set). System
+    prompt guidance for TrueNAS vs Prometheus disk metrics. Unit and integration tests.~~
+
 **Phase 1 complete.** All build steps finished — the agent has Prometheus tools, Grafana alerting tools, Proxmox VE
-tools, PBS tools, runbook RAG, a system prompt with conversation memory, a FastAPI backend (`POST /ask`, `GET /health`),
-an interactive CLI, and design documentation.
+tools, PBS tools, TrueNAS SCALE tools, runbook RAG, a system prompt with conversation memory, a FastAPI backend
+(`POST /ask`, `GET /health`), an interactive CLI, and design documentation.
 
 ### Phase 2: Synthetic Incident Generator — _Shelved_
 
@@ -570,7 +581,7 @@ project needs a portable offline demo.
 
 **Phase 3 complete.** All build steps finished — the agent has 3 Loki tools (query logs, list label values, correlate
 changes), conditional registration when `LOKI_URL` is set, a health check, system prompt guidance for LogQL queries,
-and documentation. 230 tests passing.
+and documentation.
 
 ### Phase 4: SLI/SLO Dashboard & Instrumentation
 
@@ -624,6 +635,7 @@ homelab-sre-assistant/
 │   │   │   ├── grafana_alerts.py # Grafana alerting tools (2)
 │   │   │   ├── proxmox.py        # Proxmox VE tools (4, optional)
 │   │   │   ├── pbs.py            # PBS backup tools (3, optional)
+│   │   │   ├── truenas.py        # TrueNAS SCALE tools (5, optional)
 │   │   │   └── loki.py           # Loki log query tools (3, optional)
 │   │   └── retrieval/
 │   │       ├── embeddings.py     # Document embedding pipeline
@@ -635,7 +647,7 @@ homelab-sre-assistant/
 ├── scripts/
 │   ├── ingest_runbooks.py        # Rebuild Chroma vector store
 │   └── install-hooks.sh          # Install git pre-push hook
-├── tests/                        # Unit + integration tests (230 passing)
+├── tests/                        # Unit + integration tests (290 passing)
 ├── docs/                         # Design documentation
 │   ├── architecture.md           # System overview, data flow, deployment
 │   ├── tool-reference.md         # All tools with inputs and examples

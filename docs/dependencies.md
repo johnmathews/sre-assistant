@@ -11,7 +11,7 @@
 | `langchain-chroma` | Chroma vector store integration for RAG retrieval |
 | `fastapi` | HTTP backend — `/ask` and `/health` endpoints |
 | `uvicorn` | ASGI server for FastAPI |
-| `httpx` | Async HTTP client for all tool API calls (Prometheus, Grafana, Loki, Proxmox, PBS) |
+| `httpx` | Async HTTP client for all tool API calls (Prometheus, Grafana, Loki, TrueNAS, Proxmox, PBS) |
 | `pydantic` | Data validation for tool input schemas and API models |
 | `pydantic-settings` | Environment variable loading with validation |
 | `python-dotenv` | `.env` file parsing (used by pydantic-settings) |
@@ -62,6 +62,7 @@ The model is configurable via `OPENAI_MODEL` in `.env` (default: `gpt-4o-mini`).
 | Service | What it provides | Auth |
 |---------|-----------------|------|
 | **Loki** | Log aggregation, LogQL queries, change correlation | None (HTTP) |
+| **TrueNAS SCALE** | ZFS pools, NFS/SMB shares, snapshots, system status, apps | Bearer token (`TRUENAS_API_KEY`) |
 | **Proxmox VE** | VM/container config, node status, task history | API token (`PROXMOX_API_TOKEN` as `user@realm!tokenid=secret`) |
 | **Proxmox Backup Server** | Backup status, datastore usage, backup tasks | API token (`PBS_API_TOKEN` as `user@realm!tokenid=secret`) |
 
@@ -83,6 +84,13 @@ Create a service account with Viewer role:
 No authentication required. Logs are collected by Alloy and shipped to Loki. The agent queries Loki's HTTP API
 directly. Set `LOKI_URL` to the Loki base URL (e.g. `http://loki:3100`).
 
+### TrueNAS SCALE
+
+Create an API key:
+1. TrueNAS web UI > top-right user icon > API Keys > Add
+2. Copy the generated key
+3. Set `TRUENAS_API_KEY` to the key value (used as `Authorization: Bearer <key>`)
+
 ### Proxmox VE
 
 Create an API token:
@@ -99,8 +107,8 @@ Create an API token:
 
 ## TLS Configuration
 
-Both Proxmox VE and PBS use self-signed certificates by default. The agent skips TLS verification by default
-(`PROXMOX_VERIFY_SSL=false`, `PBS_VERIFY_SSL=false`).
+Proxmox VE, PBS, and TrueNAS SCALE use self-signed certificates by default. The agent skips TLS verification by
+default (`PROXMOX_VERIFY_SSL=false`, `PBS_VERIFY_SSL=false`, `TRUENAS_VERIFY_SSL=false`).
 
 To enable verification with a custom CA:
 ```

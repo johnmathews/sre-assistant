@@ -119,6 +119,7 @@ class TestHealthEndpoint:
         respx.get("https://pbs.test:8007/api2/json/version").mock(
             return_value=httpx.Response(200, json={"data": {"version": "3.1.2"}})
         )
+        respx.get("https://truenas.test/api/v2.0/core/ping").mock(return_value=httpx.Response(200, text="pong"))
 
         with patch("src.api.main.CHROMA_PERSIST_DIR") as mock_chroma_dir:
             mock_chroma_dir.is_dir.return_value = True
@@ -127,7 +128,7 @@ class TestHealthEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "healthy"
-        assert len(body["components"]) == 6
+        assert len(body["components"]) == 7
         assert all(c["status"] == "healthy" for c in body["components"])
 
     @pytest.mark.integration
@@ -136,6 +137,7 @@ class TestHealthEndpoint:
         respx.get("http://prometheus.test:9090/-/healthy").mock(side_effect=httpx.ConnectError("connection refused"))
         respx.get("http://grafana.test:3000/api/health").mock(return_value=httpx.Response(200, json={"database": "ok"}))
         respx.get("http://loki.test:3100/ready").mock(return_value=httpx.Response(200, text="ready"))
+        respx.get("https://truenas.test/api/v2.0/core/ping").mock(return_value=httpx.Response(200, text="pong"))
         respx.get("https://proxmox.test:8006/api2/json/version").mock(
             return_value=httpx.Response(200, json={"data": {"version": "8.1.3"}})
         )
@@ -158,6 +160,7 @@ class TestHealthEndpoint:
         respx.get("http://prometheus.test:9090/-/healthy").mock(return_value=httpx.Response(200, text="ok"))
         respx.get("http://grafana.test:3000/api/health").mock(side_effect=httpx.ConnectError("connection refused"))
         respx.get("http://loki.test:3100/ready").mock(return_value=httpx.Response(200, text="ready"))
+        respx.get("https://truenas.test/api/v2.0/core/ping").mock(return_value=httpx.Response(200, text="pong"))
         respx.get("https://proxmox.test:8006/api2/json/version").mock(
             return_value=httpx.Response(200, json={"data": {"version": "8.1.3"}})
         )
@@ -184,6 +187,7 @@ class TestHealthEndpoint:
             side_effect=httpx.ConnectError("connection refused")
         )
         respx.get("https://pbs.test:8007/api2/json/version").mock(side_effect=httpx.ConnectError("connection refused"))
+        respx.get("https://truenas.test/api/v2.0/core/ping").mock(side_effect=httpx.ConnectError("connection refused"))
 
         with patch("src.api.main.CHROMA_PERSIST_DIR") as mock_chroma_dir:
             mock_chroma_dir.is_dir.return_value = False
