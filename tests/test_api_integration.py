@@ -96,6 +96,36 @@ class TestAskEndpoint:
         assert resp.status_code == 500
         assert "LLM exploded" in resp.json()["detail"]
 
+    @pytest.mark.integration
+    def test_tool_call_pairing_error_recovered_by_invoke_agent(self, client: TestClient) -> None:
+        """invoke_agent handles tool_call pairing errors internally, so the API
+        should return 200 with the recovered response, not 500."""
+        with patch(
+            "src.api.main.invoke_agent",
+            new_callable=AsyncMock,
+            return_value="Recovered after session reset.",
+        ):
+            resp = client.post(
+                "/ask",
+                json={"question": "hello?", "session_id": "broken-sess"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["response"] == "Recovered after session reset."
+
+    @pytest.mark.integration
+    def test_timeout_returns_500(self, client: TestClient) -> None:
+        """A timeout that escapes invoke_agent surfaces as a 500."""
+        with patch(
+            "src.api.main.invoke_agent",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError("timed out"),
+        ):
+            resp = client.post("/ask", json={"question": "slow"})
+
+        assert resp.status_code == 500
+        assert "timed out" in resp.json()["detail"]
+
 
 # ---------------------------------------------------------------------------
 # GET /health

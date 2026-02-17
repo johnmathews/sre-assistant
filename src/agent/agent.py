@@ -2,6 +2,7 @@
 
 import logging
 from typing import Any
+from uuid import uuid4
 
 from langchain.agents import create_agent  # pyright: ignore[reportUnknownVariableType]
 from langchain_core.messages import AIMessage, HumanMessage
@@ -305,6 +306,17 @@ def build_agent(
     return agent
 
 
+def _is_tool_call_pairing_error(exc: BaseException) -> bool:
+    """Check if an exception is caused by orphaned tool_calls in conversation history.
+
+    This happens when a previous request saved an AIMessage with tool_calls to the
+    checkpoint but failed before the corresponding ToolMessages were added (e.g., due
+    to a timeout). The OpenAI API rejects the malformed history on the next request.
+    """
+    msg = str(exc).lower()
+    return "tool_calls" in msg and "tool messages" in msg
+
+
 async def invoke_agent(
     agent: AgentGraph,
     message: str,
@@ -313,6 +325,10 @@ async def invoke_agent(
     """Send a message to the agent and return the text response.
 
     Uses ainvoke because the tools are async (httpx-based).
+
+    If a previous request left orphaned tool_calls in the session checkpoint
+    (e.g., due to a timeout), this function detects the resulting OpenAI 400
+    error and retries with a fresh session to avoid a permanently broken state.
 
     Args:
         agent: The compiled agent from build_agent().
@@ -324,10 +340,29 @@ async def invoke_agent(
     """
     config: RunnableConfig = {"configurable": {"thread_id": session_id}}
 
-    result: dict[str, Any] = await agent.ainvoke(
-        {"messages": [HumanMessage(content=message)]},
-        config=config,
-    )
+    try:
+        result: dict[str, Any] = await agent.ainvoke(
+            {"messages": [HumanMessage(content=message)]},
+            config=config,
+        )
+    except Exception as exc:
+        if _is_tool_call_pairing_error(exc):
+            # Session history is corrupted — retry with a fresh thread to unblock
+            fresh_id = f"{session_id}-{uuid4().hex[:6]}"
+            logger.warning(
+                "Session '%s' has corrupted tool-call history; retrying with fresh session '%s'",
+                session_id,
+                fresh_id,
+            )
+            fresh_config: RunnableConfig = {
+                "configurable": {"thread_id": fresh_id},
+            }
+            result = await agent.ainvoke(
+                {"messages": [HumanMessage(content=message)]},
+                config=fresh_config,
+            )
+        else:
+            raise
 
     # Extract the last AI message from the result
     messages: list[Any] = result.get("messages", [])

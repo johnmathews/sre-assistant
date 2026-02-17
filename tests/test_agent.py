@@ -1,8 +1,17 @@
 """Unit tests for agent assembly — system prompt, tool wiring, invocation."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
-from src.agent.agent import SYSTEM_PROMPT, _get_tools, build_agent
+import pytest
+from langchain_core.messages import AIMessage
+
+from src.agent.agent import (
+    SYSTEM_PROMPT,
+    _get_tools,
+    _is_tool_call_pairing_error,
+    build_agent,
+    invoke_agent,
+)
 
 
 class TestSystemPrompt:
@@ -110,3 +119,110 @@ class TestBuildAgent:
     def test_custom_model_name(self, mock_settings: object) -> None:
         agent = build_agent(model_name="gpt-4o")
         assert agent is not None
+
+
+class TestIsToolCallPairingError:
+    """Tests for the tool_call pairing error detection helper."""
+
+    def test_detects_openai_tool_call_error(self) -> None:
+        exc = Exception(
+            "Error code: 400 - {'error': {'message': \"An assistant message "
+            "with 'tool_calls' must be followed by tool messages responding "
+            "to each 'tool_call_id'.\"}}"
+        )
+        assert _is_tool_call_pairing_error(exc) is True
+
+    def test_ignores_unrelated_errors(self) -> None:
+        assert _is_tool_call_pairing_error(Exception("Connection refused")) is False
+        assert _is_tool_call_pairing_error(Exception("rate limit exceeded")) is False
+        assert _is_tool_call_pairing_error(TimeoutError("timed out")) is False
+
+    def test_ignores_partial_match(self) -> None:
+        # Must have BOTH "tool_calls" AND "tool messages" to match
+        assert _is_tool_call_pairing_error(Exception("tool_calls not found")) is False
+        assert _is_tool_call_pairing_error(Exception("tool messages missing")) is False
+
+
+class TestInvokeAgent:
+    """Tests for invoke_agent error handling and session recovery."""
+
+    @pytest.mark.integration
+    async def test_returns_ai_message_content(self) -> None:
+        mock_agent = AsyncMock()
+        mock_agent.ainvoke.return_value = {"messages": [AIMessage(content="CPU is at 42%.")]}
+
+        result = await invoke_agent(mock_agent, "What is CPU?", session_id="s1")
+        assert result == "CPU is at 42%."
+
+    @pytest.mark.integration
+    async def test_returns_fallback_when_no_ai_message(self) -> None:
+        mock_agent = AsyncMock()
+        mock_agent.ainvoke.return_value = {"messages": []}
+
+        result = await invoke_agent(mock_agent, "hello", session_id="s1")
+        assert result == "No response generated."
+
+    @pytest.mark.integration
+    async def test_recovers_from_corrupted_tool_call_history(self) -> None:
+        """When session history has orphaned tool_calls, invoke_agent retries
+        with a fresh session instead of permanently failing."""
+        tool_call_error = Exception(
+            "Error code: 400 - {'error': {'message': \"An assistant message "
+            "with 'tool_calls' must be followed by tool messages responding "
+            "to each 'tool_call_id'. The following tool_call_ids did not have "
+            'response messages: call_abc123"}}'
+        )
+
+        mock_agent = AsyncMock()
+        # First call with original session: corrupted history → error
+        # Second call with fresh session: succeeds
+        mock_agent.ainvoke.side_effect = [
+            tool_call_error,
+            {"messages": [AIMessage(content="Recovered response.")]},
+        ]
+
+        result = await invoke_agent(mock_agent, "hello?", session_id="broken-sess")
+
+        assert result == "Recovered response."
+        assert mock_agent.ainvoke.call_count == 2
+
+        # Verify the retry used a different thread_id (config passed as kwarg)
+        first_thread = mock_agent.ainvoke.call_args_list[0].kwargs["config"]["configurable"]["thread_id"]
+        second_thread = mock_agent.ainvoke.call_args_list[1].kwargs["config"]["configurable"]["thread_id"]
+        assert first_thread != second_thread
+        assert second_thread.startswith("broken-sess-")
+
+    @pytest.mark.integration
+    async def test_raises_non_tool_call_errors(self) -> None:
+        """Errors unrelated to tool_call pairing still propagate."""
+        mock_agent = AsyncMock()
+        mock_agent.ainvoke.side_effect = RuntimeError("LLM exploded")
+
+        with pytest.raises(RuntimeError, match="LLM exploded"):
+            await invoke_agent(mock_agent, "boom", session_id="s1")
+
+    @pytest.mark.integration
+    async def test_timeout_error_propagates(self) -> None:
+        """A generic timeout from ainvoke propagates (not a tool_call pairing issue)."""
+        mock_agent = AsyncMock()
+        mock_agent.ainvoke.side_effect = TimeoutError("timed out")
+
+        with pytest.raises(TimeoutError, match="timed out"):
+            await invoke_agent(mock_agent, "slow query", session_id="s1")
+
+    @pytest.mark.integration
+    async def test_recovery_failure_propagates(self) -> None:
+        """If the fresh-session retry also fails, that error propagates."""
+        tool_call_error = Exception(
+            "An assistant message with 'tool_calls' must be followed by "
+            "tool messages responding to each 'tool_call_id'."
+        )
+
+        mock_agent = AsyncMock()
+        mock_agent.ainvoke.side_effect = [
+            tool_call_error,
+            RuntimeError("LLM still broken"),
+        ]
+
+        with pytest.raises(RuntimeError, match="LLM still broken"):
+            await invoke_agent(mock_agent, "hello", session_id="s1")
