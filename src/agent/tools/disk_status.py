@@ -153,11 +153,64 @@ def _select_step(duration_seconds: int) -> str:
     return "5m"
 
 
-def _build_promql(pool: str | None = None) -> str:
-    """Build the PromQL selector for HDD power state, optionally filtered by pool."""
-    if pool:
-        return f'disk_power_state{{type="hdd", pool="{pool}"}}'
-    return 'disk_power_state{type="hdd"}'
+# PromQL selector — always fetches ALL HDDs. Pool filtering is done in Python
+# using TrueNAS disk inventory, because the Prometheus metric may not have a
+# pool label (depends on exporter version/config).
+_HDD_QUERY = 'disk_power_state{type="hdd"}'
+
+
+def _resolve_pool_filter(
+    pool: str,
+    power_states: list[PrometheusSeries],
+    disk_lookup: dict[str, TruenasDiskEntry],
+) -> set[str]:
+    """Resolve a pool name to a set of Prometheus device_ids.
+
+    Uses TrueNAS disk inventory (primary) and Prometheus pool label (fallback).
+    Raises ToolException if no disks match the requested pool.
+    """
+    matched: set[str] = set()
+
+    # Build hex → device_id map from Prometheus results
+    hex_to_device: dict[str, str] = {}
+    for series in power_states:
+        device_id = series.get("metric", {}).get("device_id", "unknown")
+        hex_key = _extract_hex(device_id)
+        if hex_key:
+            hex_to_device[hex_key] = device_id
+
+    # Primary: TrueNAS disk inventory pool field
+    for hex_key, disk_entry in disk_lookup.items():
+        if disk_entry.get("pool") == pool and hex_key in hex_to_device:
+            matched.add(hex_to_device[hex_key])
+    if matched:
+        return matched
+
+    # Fallback: Prometheus metric pool label (if exporter exports it)
+    for series in power_states:
+        metric = series.get("metric", {})
+        if metric.get("pool") == pool:
+            matched.add(metric.get("device_id", "unknown"))
+    if matched:
+        return matched
+
+    # No matches — build available pool list for the error message
+    available: set[str] = set()
+    for disk_entry in disk_lookup.values():
+        p = disk_entry.get("pool", "")
+        if p:
+            available.add(p)
+    for series in power_states:
+        p = series.get("metric", {}).get("pool", "")
+        if p:
+            available.add(p)
+
+    pool_list = ", ".join(sorted(available)) if available else "unknown"
+    raise ToolException(
+        f"No HDDs found in pool '{pool}'. "
+        f"Available HDD pools: {pool_list}. "
+        "Try again without a pool filter, or use one of the available pool names."
+    )
 
 
 # --- Hex extraction for cross-referencing ---
@@ -210,18 +263,18 @@ def _format_power_state(value: float) -> str:
 # --- Prometheus queries ---
 
 
-async def _get_current_power_states(pool: str | None = None) -> list[PrometheusSeries]:
+async def _get_current_power_states() -> list[PrometheusSeries]:
     """Get current disk_power_state{type='hdd'} from Prometheus."""
     data = await _query_prometheus(
         "/api/v1/query",
-        {"query": _build_promql(pool)},
+        {"query": _HDD_QUERY},
     )
     if data.get("status") != "success":
         return []
     return list(data.get("data", {}).get("result", []))
 
 
-async def _find_transition_window(pool: str | None = None) -> tuple[str | None, dict[str, int]]:
+async def _find_transition_window() -> tuple[str | None, dict[str, int]]:
     """Find the shortest time window that contains power state group changes.
 
     Uses range queries with progressive widening: 1h → 6h → 24h → 7d.
@@ -229,7 +282,6 @@ async def _find_transition_window(pool: str | None = None) -> tuple[str | None, 
     not sub-state fluctuations (e.g. idle_a ↔ idle_b).
     Returns (window_string, per_device_change_counts) or (None, {}).
     """
-    query = _build_promql(pool)
     for window in TRANSITION_WINDOWS:
         duration = WINDOW_SECONDS.get(window, 3600)
         now = datetime.now(UTC)
@@ -240,7 +292,7 @@ async def _find_transition_window(pool: str | None = None) -> tuple[str | None, 
         data = await _query_prometheus(
             "/api/v1/query_range",
             {
-                "query": query,
+                "query": _HDD_QUERY,
                 "start": start_ts,
                 "end": end_ts,
                 "step": step,
@@ -264,10 +316,7 @@ async def _find_transition_window(pool: str | None = None) -> tuple[str | None, 
     return None, {}
 
 
-async def _get_stats(
-    duration_seconds: int = 86400,
-    pool: str | None = None,
-) -> dict[str, DiskStats]:
+async def _get_stats(duration_seconds: int = 86400) -> dict[str, DiskStats]:
     """Get per-disk stats for a given duration: group transition count and time-in-state.
 
     Counts transitions between groups (active/standby/error), not sub-state
@@ -280,7 +329,7 @@ async def _get_stats(
     data = await _query_prometheus(
         "/api/v1/query_range",
         {
-            "query": _build_promql(pool),
+            "query": _HDD_QUERY,
             "start": start_ts,
             "end": end_ts,
             "step": _select_step(duration_seconds),
@@ -304,10 +353,7 @@ async def _get_stats(
     return stats
 
 
-async def _find_transition_times(
-    window: str,
-    pool: str | None = None,
-) -> dict[str, str]:
+async def _find_transition_times(window: str) -> dict[str, str]:
     """Pinpoint when each disk last changed state by range-querying within the window.
 
     Returns a dict mapping device_id to a human-readable transition description.
@@ -321,7 +367,7 @@ async def _find_transition_times(
     data = await _query_prometheus(
         "/api/v1/query_range",
         {
-            "query": _build_promql(pool),
+            "query": _HDD_QUERY,
             "start": start_ts,
             "end": end_ts,
             "step": step,
@@ -414,9 +460,9 @@ async def hdd_power_status(
 
     settings = get_settings()
 
-    # Step 1: Get current power states from Prometheus
+    # Step 1: Get ALL current power states from Prometheus (no pool filter in PromQL)
     try:
-        power_states = await _get_current_power_states(pool=pool)
+        power_states = await _get_current_power_states()
     except httpx.ConnectError as e:
         raise ToolException(f"Cannot connect to Prometheus: {e}") from e
     except httpx.TimeoutException as e:
@@ -437,7 +483,13 @@ async def hdd_power_status(
         except Exception:
             logger.warning("Failed to fetch TrueNAS disk inventory; showing device IDs only")
 
-    # Step 3: Cross-reference and format current state
+    # Step 3: Apply pool filter in Python (not PromQL — the metric may lack a pool label)
+    pool_device_ids: set[str] | None = None
+    if pool:
+        pool_device_ids = _resolve_pool_filter(pool, power_states, disk_lookup)
+        power_states = [s for s in power_states if s.get("metric", {}).get("device_id", "unknown") in pool_device_ids]
+
+    # Step 4: Cross-reference and format current state
     lines: list[str] = ["HDD Power Status:\n"]
 
     active_disks: list[str] = []
@@ -480,10 +532,12 @@ async def hdd_power_status(
         lines.append(f"Other ({len(other_disks)}):")
         lines.extend(other_disks)
 
-    # Step 4: Get stats for the requested duration (change counts + time-in-state)
+    # Step 5: Get stats for the requested duration (change counts + time-in-state)
     period_stats: dict[str, DiskStats] = {}
     try:
-        period_stats = await _get_stats(dur_int, pool)
+        period_stats = await _get_stats(dur_int)
+        if pool_device_ids is not None:
+            period_stats = {k: v for k, v in period_stats.items() if k in pool_device_ids}
     except Exception:
         logger.warning("Failed to query stats for %s", duration, exc_info=True)
 
@@ -506,17 +560,19 @@ async def hdd_power_status(
                 f"standby {stats.standby_pct}%, active {stats.active_pct}%"
             )
 
-    # Step 5: Find last state transitions
+    # Step 6: Find last state transitions
     lines.append("\nLast power state change:")
     try:
-        window, _ = await _find_transition_window(pool=pool)
+        window, _ = await _find_transition_window()
         if window is None:
             lines.append(
                 "  No power state changes detected in the last 7 days. "
                 "All disks have been in their current state for at least 7 days."
             )
         else:
-            transitions = await _find_transition_times(window, pool=pool)
+            transitions = await _find_transition_times(window)
+            if pool_device_ids is not None:
+                transitions = {k: v for k, v in transitions.items() if k in pool_device_ids}
             if not transitions:
                 lines.append(f"  Changes detected in the last {window} but could not pinpoint exact times.")
             else:

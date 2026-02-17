@@ -326,10 +326,29 @@ class TestHddPowerStatus:
         assert "Last 12h" in result
 
     @respx.mock
-    async def test_pool_filter(self) -> None:
-        """Passing pool='tank' filters queries to that pool."""
+    async def test_pool_filter_via_truenas(self) -> None:
+        """Pool filtering uses TrueNAS disk inventory, not PromQL labels."""
+        # Prometheus returns ALL disks (no pool label needed)
+        prom_results_no_pool = [
+            {
+                "metric": {
+                    "__name__": "disk_power_state",
+                    "device_id": "/dev/disk/by-id/wwn-0x5000c500eb02b449",
+                    "type": "hdd",
+                },
+                "value": [1700000000, "2"],
+            },
+            {
+                "metric": {
+                    "__name__": "disk_power_state",
+                    "device_id": "/dev/disk/by-id/wwn-0x5000c500f742ccbf",
+                    "type": "hdd",
+                },
+                "value": [1700000000, "0"],
+            },
+        ]
         respx.get("http://prometheus.test:9090/api/v1/query").mock(
-            return_value=_mock_power_state_response(POWER_STATE_RESULTS),
+            return_value=_mock_power_state_response(prom_results_no_pool),
         )
         respx.get("http://prometheus.test:9090/api/v1/query_range").mock(
             side_effect=[
@@ -337,9 +356,37 @@ class TestHddPowerStatus:
                 *[_mock_range_response(_stable_range_data()) for _ in range(4)],  # windows
             ]
         )
-        respx.get("https://truenas.test/api/v2.0/disk").mock(return_value=_mock_truenas_disks())
+        # TrueNAS says sdc is in "tank", sdf is in "backup"
+        respx.get("https://truenas.test/api/v2.0/disk").mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "identifier": "{serial_lunid}5000c500eb02b449",
+                        "name": "sdc",
+                        "serial": "WWZ5TZSF",
+                        "model": "ST8000VN004-3CP101",
+                        "type": "HDD",
+                        "size": 8001563222016,
+                        "pool": "tank",
+                    },
+                    {
+                        "identifier": "{serial_lunid}5000c500f742ccbf",
+                        "name": "sdf",
+                        "serial": "K3S04BKQ",
+                        "model": "ST16000NT001-3LV101",
+                        "type": "HDD",
+                        "size": 16000900661248,
+                        "pool": "backup",
+                    },
+                ],
+            ),
+        )
 
         result = await hdd_power_status.ainvoke({"pool": "tank"})
+        # Should only show sdc (tank), not sdf (backup)
+        assert "sdc" in result
+        assert "sdf" not in result
         assert "HDD Power Status" in result
 
     @respx.mock
@@ -364,3 +411,17 @@ class TestHddPowerStatus:
 
         result = await hdd_power_status.ainvoke({"duration": "1w"})
         assert "Last 1w" in result
+
+    @respx.mock
+    async def test_nonexistent_pool_lists_available_pools(self) -> None:
+        """Filtering by a pool with no HDDs lists available pools from TrueNAS."""
+        # Prometheus returns all disks (unfiltered — pool filtering is in Python)
+        respx.get("http://prometheus.test:9090/api/v1/query").mock(
+            return_value=_mock_power_state_response(POWER_STATE_RESULTS),
+        )
+        respx.get("https://truenas.test/api/v2.0/disk").mock(return_value=_mock_truenas_disks())
+
+        result = await hdd_power_status.ainvoke({"pool": "nonexistent"})
+        assert "No HDDs found in pool" in result
+        assert "nonexistent" in result
+        assert "tank" in result

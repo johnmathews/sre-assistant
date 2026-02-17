@@ -1,20 +1,24 @@
 """Unit tests for the HDD power status composite tool."""
 
+import pytest
+from langchain_core.tools import ToolException
+
 from src.agent.tools.disk_status import (
     _ACTIVE_STATES,
     _ERROR_STATES,
     _STANDBY_STATES,
     POWER_STATE_LABELS,
     _build_disk_lookup,
-    _build_promql,
     _compute_time_in_state,
     _count_group_transitions,
     _extract_hex,
     _format_disk_name,
     _format_power_state,
+    _resolve_pool_filter,
     _select_step,
     _state_group,
 )
+from src.agent.tools.prometheus import PrometheusSeries
 from src.agent.tools.truenas import TruenasDiskEntry
 
 
@@ -267,17 +271,71 @@ class TestComputeTimeInState:
         assert result["active"] == 25.0
 
 
-class TestBuildPromql:
-    """Tests for _build_promql PromQL query builder."""
+class TestResolvePoolFilter:
+    """Tests for _resolve_pool_filter — Python-side pool filtering."""
 
-    def test_no_filter(self) -> None:
-        assert _build_promql() == 'disk_power_state{type="hdd"}'
+    def _make_series(self, device_id: str, pool: str = "") -> PrometheusSeries:
+        metric: dict[str, str] = {"device_id": device_id, "type": "hdd"}
+        if pool:
+            metric["pool"] = pool
+        return PrometheusSeries(metric=metric, value=[1700000000, "2"])
 
-    def test_with_pool(self) -> None:
-        assert _build_promql(pool="tank") == 'disk_power_state{type="hdd", pool="tank"}'
+    def test_matches_via_truenas_inventory(self) -> None:
+        """Primary path: TrueNAS disk inventory has pool info."""
+        power_states = [
+            self._make_series("/dev/disk/by-id/wwn-0x5000c500eb02b449"),
+            self._make_series("/dev/disk/by-id/wwn-0x5000c500f742ccbf"),
+        ]
+        disk_lookup = _build_disk_lookup(
+            [
+                TruenasDiskEntry(
+                    identifier="{serial_lunid}5000c500eb02b449",
+                    name="sdc",
+                    pool="tank",
+                ),
+                TruenasDiskEntry(
+                    identifier="{serial_lunid}5000c500f742ccbf",
+                    name="sdf",
+                    pool="backup",
+                ),
+            ]
+        )
+        result = _resolve_pool_filter("tank", power_states, disk_lookup)
+        assert result == {"/dev/disk/by-id/wwn-0x5000c500eb02b449"}
 
-    def test_none_pool(self) -> None:
-        assert _build_promql(pool=None) == 'disk_power_state{type="hdd"}'
+    def test_falls_back_to_prometheus_label(self) -> None:
+        """When TrueNAS has no pool info, uses Prometheus pool label."""
+        power_states = [
+            self._make_series("/dev/disk/by-id/wwn-0x5000c500eb02b449", pool="tank"),
+            self._make_series("/dev/disk/by-id/wwn-0x5000c500f742ccbf", pool="backup"),
+        ]
+        # Empty disk_lookup — TrueNAS not configured
+        result = _resolve_pool_filter("backup", power_states, {})
+        assert result == {"/dev/disk/by-id/wwn-0x5000c500f742ccbf"}
+
+    def test_raises_with_available_pools_from_truenas(self) -> None:
+        """When pool doesn't exist, error lists available pools from TrueNAS."""
+        power_states = [self._make_series("/dev/disk/by-id/wwn-0x5000c500eb02b449")]
+        disk_lookup = _build_disk_lookup(
+            [
+                TruenasDiskEntry(
+                    identifier="{serial_lunid}5000c500eb02b449",
+                    name="sdc",
+                    pool="tank",
+                ),
+            ]
+        )
+        with pytest.raises(ToolException, match="No HDDs found in pool 'nonexistent'"):
+            _resolve_pool_filter("nonexistent", power_states, disk_lookup)
+
+    def test_raises_with_available_pools_from_prometheus(self) -> None:
+        """When TrueNAS has no pool info, error lists pools from Prometheus labels."""
+        power_states = [
+            self._make_series("/dev/disk/by-id/wwn-0xaaa", pool="tank"),
+            self._make_series("/dev/disk/by-id/wwn-0xbbb", pool="backup"),
+        ]
+        with pytest.raises(ToolException, match="backup, tank"):
+            _resolve_pool_filter("nonexistent", power_states, {})
 
 
 class TestSelectStep:
