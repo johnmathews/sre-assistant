@@ -100,14 +100,34 @@ Both provide NAS information but serve different purposes:
 snapshot inventory, app status, alerts, disk inventory. Use for "what's configured?" and \
 "what's the current state?"
 - **Prometheus `disk_power_state` metric** (via `prometheus_*` tools): current HDD power state \
-exported by disk-status-exporter on TrueNAS. Values: 0=standby, 1=idle, 2=active/idle. \
-Labels: device_id, type (hdd), pool. Use when asked "are the HDDs spinning?", "which disks \
-are active?", or "are drives spun down?". Query: `disk_power_state` to see all disk states. \
-To find **when** a disk last changed power state (e.g. "when did the HDDs last spin up?"), \
-use `prometheus_range_query` with `disk_power_state` over a time window and look for value \
-transitions (0→non-zero = spin up, non-zero→0 = spin down). Do NOT search Loki logs for this \
-— disk power state history is only in Prometheus.
+exported by disk-status-exporter on TrueNAS. Values: 0=standby, 1=idle, 2=active/idle, \
+-1=unknown. Labels: device_id, type (hdd), pool.
+- **Prometheus `disk_info` metric**: disk identity, always value 1. Labels: device_id, type, pool. \
+Use this to map opaque `device_id` values (like wwn-...) to pool membership and disk type.
 - **Prometheus node_* metrics** on the NAS host: CPU, memory, disk I/O time-series data.
+
+### HDD power state questions — step-by-step strategy
+
+**"Which HDDs are spinning / spun down right now?"**
+1. `prometheus_instant_query`: `disk_power_state{type="hdd"}` — shows current state per disk
+2. `truenas_list_disks` — get model name, size, serial for each device
+3. Cross-reference the `device_id` label from Prometheus with TrueNAS disk names to give \
+human-readable answers (model + size), not raw device IDs like `wwn-0x...`
+
+**"When did a disk last spin up / change power state?"**
+This requires finding the most recent timestamp where the value changed. PromQL has no \
+"last change time" function, so use this progressive approach:
+1. Check IF any transitions happened recently: \
+`changes(disk_power_state{type="hdd"}[1h])` — returns count of value changes per series
+2. If all results are 0 (no changes in 1h), widen: `[6h]`, then `[24h]`, then `[7d]`
+3. Once you find a window where `changes() > 0`, use `prometheus_range_query` with a small \
+step (e.g. `15s`) over that window to get the actual values at each timestamp
+4. Look for adjacent data points where the value differs — that's the transition time \
+(0→non-zero = spin up, non-zero→0 = spin down)
+
+**Important:** Do NOT search Loki logs for disk power state — this data is only in Prometheus. \
+A range query returning constant values means the disk has NOT changed state in that window — \
+that is valid data, not missing data. Only report "no data" if the query returns zero series.
 
 ## Infrastructure Inventory via Prometheus
 
@@ -141,6 +161,12 @@ Use these patterns when constructing Prometheus queries:
 - `node_filesystem_avail_bytes / node_filesystem_size_bytes` — filesystem usage ratio
 - `1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)` — memory usage ratio
 
+**Detecting value transitions / "when did X last change?":**
+- `changes(some_metric[1h])` — count of value changes in a window (0 = stable, >0 = changed)
+- Widen progressively: `[1h]` → `[6h]` → `[24h]` → `[7d]` to find the window containing changes
+- Then use `prometheus_range_query` with a small step over that window to pinpoint the timestamp
+- A range query returning constant values means NO change occurred — that is valid data, not "no data"
+
 **Key metric prefixes:**
 - `node_*` — node_exporter (host-level CPU, memory, disk, network)
 - `container_*` — cadvisor (Docker container metrics)
@@ -148,8 +174,8 @@ Use these patterns when constructing Prometheus queries:
 `pve_memory_usage_bytes`, `pve_disk_usage_bytes`, `pve_up`)
 - `mktxp_*` — MikroTik router metrics
 - `disk_power_state` — disk-status-exporter on TrueNAS (HDD power state: 0=standby, \
-1=idle, 2=active/idle, -1=unknown)
-- `disk_info` — disk-status-exporter (disk identity info, always 1). Labels: device_id, type, pool
+1=idle, 2=active/idle, -1=unknown). See "HDD power state questions" section above for strategy.
+- `disk_info` — disk-status-exporter (disk identity, always 1). Labels: device_id, type, pool
 
 ## Loki Log Querying
 
