@@ -68,6 +68,7 @@ def mock_settings() -> Generator[Any]:
         patch("src.agent.tools.loki.get_settings", return_value=fake_settings),
         patch("src.agent.tools.truenas.get_settings", return_value=fake_settings),
         patch("src.agent.agent.get_settings", return_value=fake_settings),
+        patch("src.agent.tools.disk_status.get_settings", return_value=fake_settings),
         patch("src.agent.retrieval.embeddings.get_settings", return_value=fake_settings),
         patch("src.api.main.get_settings", return_value=fake_settings),
     ):

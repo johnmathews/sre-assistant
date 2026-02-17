@@ -1,0 +1,311 @@
+"""Composite tool for HDD power state: current status, disk identity, and transition history.
+
+Combines Prometheus disk_power_state metrics with TrueNAS disk inventory to produce
+human-readable HDD summaries without requiring the LLM to chain multiple queries.
+"""
+
+import logging
+import re
+from datetime import UTC, datetime
+
+import httpx
+from langchain_core.tools import ToolException, tool  # pyright: ignore[reportUnknownVariableType]
+from pydantic import BaseModel
+
+from src.agent.tools.prometheus import (
+    DEFAULT_TIMEOUT_SECONDS as PROM_TIMEOUT,
+)
+from src.agent.tools.prometheus import (
+    PrometheusSeries,
+    _query_prometheus,
+)
+from src.agent.tools.truenas import (
+    TruenasDiskEntry,
+    _format_bytes,
+    _truenas_get,
+)
+from src.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+# Prometheus power state values (from disk-status-exporter)
+POWER_STATE_LABELS: dict[int, str] = {
+    -1: "unknown",
+    0: "standby",
+    1: "idle",
+    2: "active/idle",
+}
+
+# Time windows for progressive changes() widening (seconds)
+TRANSITION_WINDOWS = ["1h", "6h", "24h", "7d"]
+
+
+# --- Hex extraction for cross-referencing ---
+
+
+def _extract_hex(s: str) -> str:
+    """Extract the longest hex substring (>= 8 chars) from a string.
+
+    Used to match Prometheus device_id (e.g. '/dev/disk/by-id/wwn-0x5000c500eb02b449')
+    with TrueNAS identifier (e.g. '{serial_lunid}5000c500eb02b449').
+    """
+    matches = re.findall(r"[0-9a-fA-F]{8,}", s)
+    return max(matches, key=len).lower() if matches else ""
+
+
+def _build_disk_lookup(disks: list[TruenasDiskEntry]) -> dict[str, TruenasDiskEntry]:
+    """Build a lookup table from hex-extracted identifier to disk entry."""
+    lookup: dict[str, TruenasDiskEntry] = {}
+    for disk in disks:
+        identifier = disk.get("identifier", "")
+        hex_key = _extract_hex(identifier)
+        if hex_key:
+            lookup[hex_key] = disk
+    return lookup
+
+
+def _format_disk_name(disk: TruenasDiskEntry | None, device_id: str) -> str:
+    """Format a disk as 'name: model (size)' or fall back to device_id."""
+    if disk:
+        name = disk.get("name", "?")
+        model = disk.get("model", "?")
+        size = _format_bytes(disk.get("size", 0))
+        serial = disk.get("serial", "")
+        serial_str = f", serial={serial}" if serial else ""
+        return f"{name}: {model} ({size}{serial_str})"
+    # Strip path prefix for readability
+    short_id = device_id.rsplit("/", 1)[-1] if "/" in device_id else device_id
+    return short_id
+
+
+def _format_power_state(value: float) -> str:
+    """Map a numeric power state value to a human-readable label."""
+    int_val = int(value)
+    label = POWER_STATE_LABELS.get(int_val)
+    if label:
+        return f"{label} ({int_val})"
+    return f"unknown state ({int_val})"
+
+
+# --- Prometheus queries ---
+
+
+async def _get_current_power_states() -> list[PrometheusSeries]:
+    """Get current disk_power_state{type='hdd'} from Prometheus."""
+    data = await _query_prometheus(
+        "/api/v1/query",
+        {"query": 'disk_power_state{type="hdd"}'},
+    )
+    if data.get("status") != "success":
+        return []
+    return list(data.get("data", {}).get("result", []))
+
+
+async def _find_transition_window() -> str | None:
+    """Find the shortest time window that contains power state changes.
+
+    Uses changes() with progressive widening: 1h → 6h → 24h → 7d.
+    Returns the window string (e.g. '6h') or None if no changes found.
+    """
+    for window in TRANSITION_WINDOWS:
+        data = await _query_prometheus(
+            "/api/v1/query",
+            {"query": f'changes(disk_power_state{{type="hdd"}}[{window}])'},
+        )
+        if data.get("status") != "success":
+            continue
+        results = data.get("data", {}).get("result", [])
+        for series in results:
+            value_pair = series.get("value", [0, "0"])
+            if len(value_pair) > 1 and float(str(value_pair[1])) > 0:
+                return window
+    return None
+
+
+async def _find_transition_times(window: str) -> dict[str, str]:
+    """Pinpoint when each disk last changed state by range-querying within the window.
+
+    Returns a dict mapping device_id to a human-readable transition description.
+    """
+    # Map window string to seconds for range calculation
+    window_seconds: dict[str, int] = {
+        "1h": 3600,
+        "6h": 21600,
+        "24h": 86400,
+        "7d": 604800,
+    }
+    duration = window_seconds.get(window, 3600)
+    now = datetime.now(UTC)
+    start_ts = str(int(now.timestamp()) - duration)
+    end_ts = str(int(now.timestamp()))
+
+    # Use a step that gives reasonable resolution without too many points
+    step = "15s" if duration <= 3600 else "60s" if duration <= 86400 else "5m"
+
+    data = await _query_prometheus(
+        "/api/v1/query_range",
+        {
+            "query": 'disk_power_state{type="hdd"}',
+            "start": start_ts,
+            "end": end_ts,
+            "step": step,
+        },
+    )
+    if data.get("status") != "success":
+        return {}
+
+    transitions: dict[str, str] = {}
+    for series in data.get("data", {}).get("result", []):
+        device_id = series.get("metric", {}).get("device_id", "unknown")
+        values = series.get("values", [])
+        if len(values) < 2:
+            continue
+
+        # Walk backwards to find the most recent transition
+        last_transition_ts: float | None = None
+        from_state: float | None = None
+        to_state: float | None = None
+
+        for i in range(len(values) - 1, 0, -1):
+            curr_val = float(values[i][1])
+            prev_val = float(values[i - 1][1])
+            if curr_val != prev_val:
+                last_transition_ts = float(values[i][0])
+                from_state = prev_val
+                to_state = curr_val
+                break
+
+        if last_transition_ts is not None and from_state is not None and to_state is not None:
+            dt = datetime.fromtimestamp(last_transition_ts, tz=UTC)
+            time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+            from_label = _format_power_state(from_state)
+            to_label = _format_power_state(to_state)
+            transitions[device_id] = f"{time_str} ({from_label} → {to_label})"
+
+    return transitions
+
+
+# --- Composite tool ---
+
+
+class HddPowerStatusInput(BaseModel):
+    """Input for HDD power status summary (no parameters needed)."""
+
+    pass
+
+
+TOOL_DESCRIPTION = (
+    "Get a complete HDD power status summary for TrueNAS: which disks are spun up "
+    "or in standby, mapped to human-readable disk names (model, size, serial), "
+    "and when each disk last changed power state.\n\n"
+    "Use this for ANY question about HDD power state, spinup, spindown, or disk activity. "
+    "This tool handles all the cross-referencing and transition detection automatically.\n\n"
+    "Examples:\n"
+    "- 'Which HDDs are spun up?'\n"
+    "- 'What was the last HDD to spin up?'\n"
+    "- 'Are the drives spun down?'\n"
+    "- 'When did the HDDs last change power state?'"
+)
+
+
+@tool("hdd_power_status", args_schema=HddPowerStatusInput)  # pyright: ignore[reportUnknownParameterType]
+async def hdd_power_status() -> str:
+    """Get complete HDD power status summary. See TOOL_DESCRIPTION."""
+    settings = get_settings()
+
+    # Step 1: Get current power states from Prometheus
+    try:
+        power_states = await _get_current_power_states()
+    except httpx.ConnectError as e:
+        raise ToolException(f"Cannot connect to Prometheus: {e}") from e
+    except httpx.TimeoutException as e:
+        raise ToolException(f"Prometheus query timed out after {PROM_TIMEOUT}s: {e}") from e
+    except httpx.HTTPStatusError as e:
+        raise ToolException(f"Prometheus API error: HTTP {e.response.status_code} - {e.response.text[:500]}") from e
+
+    if not power_states:
+        raise ToolException("No disk_power_state metrics found. Check that disk-status-exporter is running on TrueNAS.")
+
+    # Step 2: Get disk inventory from TrueNAS (if configured)
+    disk_lookup: dict[str, TruenasDiskEntry] = {}
+    if settings.truenas_url:
+        try:
+            disks_raw = await _truenas_get("/disk")
+            disks: list[TruenasDiskEntry] = disks_raw if isinstance(disks_raw, list) else []
+            disk_lookup = _build_disk_lookup(disks)
+        except Exception:
+            logger.warning("Failed to fetch TrueNAS disk inventory; showing device IDs only")
+
+    # Step 3: Cross-reference and format current state
+    lines: list[str] = ["HDD Power Status:\n"]
+
+    active_disks: list[str] = []
+    standby_disks: list[str] = []
+
+    for series in power_states:
+        device_id = series.get("metric", {}).get("device_id", "unknown")
+        pool = series.get("metric", {}).get("pool", "")
+        value_pair = series.get("value", [0, "0"])
+        power_value = float(str(value_pair[1])) if len(value_pair) > 1 else -1
+
+        # Cross-reference with TrueNAS disk inventory
+        hex_key = _extract_hex(device_id)
+        disk_entry = disk_lookup.get(hex_key)
+        disk_name = _format_disk_name(disk_entry, device_id)
+        state_label = _format_power_state(power_value)
+        pool_str = f" [pool: {pool}]" if pool else ""
+
+        line = f"  {disk_name} — {state_label}{pool_str}"
+        if power_value == 0:
+            standby_disks.append(line)
+        else:
+            active_disks.append(line)
+
+    if active_disks:
+        lines.append(f"Spun up ({len(active_disks)}):")
+        lines.extend(active_disks)
+    if standby_disks:
+        if active_disks:
+            lines.append("")
+        lines.append(f"In standby ({len(standby_disks)}):")
+        lines.extend(standby_disks)
+
+    # Step 4: Find last state transitions
+    lines.append("\nLast power state change:")
+    try:
+        window = await _find_transition_window()
+        if window is None:
+            lines.append(
+                "  No power state changes detected in the last 7 days. "
+                "All disks have been in their current state for at least 7 days."
+            )
+        else:
+            transitions = await _find_transition_times(window)
+            if not transitions:
+                lines.append(f"  Changes detected in the last {window} but could not pinpoint exact times.")
+            else:
+                for device_id, transition_desc in transitions.items():
+                    hex_key = _extract_hex(device_id)
+                    disk_entry = disk_lookup.get(hex_key)
+                    disk_name = _format_disk_name(disk_entry, device_id)
+                    lines.append(f"  {disk_name} — {transition_desc}")
+
+                # Note any disks without transitions in this window
+                transition_hex_keys = {_extract_hex(did) for did in transitions}
+                for series in power_states:
+                    device_id = series.get("metric", {}).get("device_id", "unknown")
+                    hex_key = _extract_hex(device_id)
+                    if hex_key not in transition_hex_keys:
+                        disk_entry = disk_lookup.get(hex_key)
+                        disk_name = _format_disk_name(disk_entry, device_id)
+                        lines.append(f"  {disk_name} — no change in the last {window}")
+
+    except Exception:
+        logger.warning("Failed to query transition history", exc_info=True)
+        lines.append("  Could not determine transition history (Prometheus query failed).")
+
+    return "\n".join(lines)
+
+
+hdd_power_status.description = TOOL_DESCRIPTION
+hdd_power_status.handle_tool_error = True

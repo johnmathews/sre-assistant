@@ -1,6 +1,6 @@
 # Tool Reference
 
-The agent has up to 21 tools across 7 categories. Tools are conditionally registered based on configuration.
+The agent has up to 22 tools across 8 categories. Tools are conditionally registered based on configuration.
 
 ## Prometheus (always enabled)
 
@@ -147,6 +147,16 @@ List apps installed on TrueNAS SCALE with their running state.
 - **Input:** none
 - **Example questions:** "What apps are running on TrueNAS?", "Is Alloy running?", "Is the disk-status-exporter deployed?"
 - **Returns:** App name, state (RUNNING/STOPPED/DEPLOYING), version, upgrade availability
+
+## HDD Power Status (enabled when `TRUENAS_URL` is set)
+
+### hdd_power_status
+
+Complete HDD power status summary: current state, human-readable disk names, and transition history.
+
+- **Input:** none
+- **Example questions:** "Which HDDs are spun up?", "What was the last HDD to spin up?", "Are the drives spun down?", "When did the HDDs last change power state?"
+- **Returns:** Per-disk power state (active/idle, standby) with model, size, serial, pool. Last power state change timestamp with from/to transition. Automatically cross-references Prometheus `disk_power_state` with TrueNAS disk inventory and uses progressive `changes()` widening to find transitions.
 
 ## Proxmox Backup Server (enabled when `PBS_URL` is set)
 

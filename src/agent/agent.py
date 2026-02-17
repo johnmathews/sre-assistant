@@ -35,6 +35,12 @@ from src.agent.tools.truenas import (
 )
 from src.config import get_settings
 
+# Conditional import — disk_status depends on both prometheus and truenas tools
+try:
+    from src.agent.tools.disk_status import hdd_power_status
+except Exception:  # pragma: no cover
+    hdd_power_status = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 # LangGraph has no public type stubs — the compiled agent type is opaque to
@@ -73,6 +79,13 @@ You have access to live infrastructure tools and a knowledge base of operational
 - `truenas_snapshots` — ZFS snapshots, snapshot schedules, replication tasks
 - `truenas_system_status` — TrueNAS version, alerts, running jobs, disk inventory
 - `truenas_apps` — installed TrueNAS apps with running state
+
+**For HDD power state** (spinup/spindown, disk activity):
+- `hdd_power_status` — **USE THIS** for any HDD power state question. Returns a complete \
+summary: which disks are spun up/standby with human-readable names (model, size, serial), \
+and when each disk last changed power state. Handles all cross-referencing and transition \
+detection automatically. Do NOT use prometheus_instant_query for disk_power_state — use this \
+tool instead.
 
 **For logs** (application logs, errors, container lifecycle events):
 - `loki_query_logs` — query log lines using LogQL (general-purpose log search)
@@ -257,6 +270,9 @@ def _get_tools() -> list[BaseTool]:
                 truenas_apps,
             ]
         )
+        # Composite HDD tool — needs Prometheus (always available) + TrueNAS
+        if hdd_power_status is not None:
+            tools.append(hdd_power_status)  # pyright: ignore[reportUnknownArgumentType]
     else:
         logger.info("TrueNAS tools disabled — TRUENAS_URL not set")
 
