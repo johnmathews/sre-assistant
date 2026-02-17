@@ -199,6 +199,41 @@ def _format_bytes(n: int) -> str:
     return f"{n:.1f} PiB"
 
 
+def _extract_topology_disks(topology: dict[str, object]) -> list[tuple[str, str, str]]:
+    """Extract (vdev_category, vdev_type, disk_name) tuples from pool topology.
+
+    TrueNAS topology structure:
+      {"data": [{"type": "MIRROR", "children": [{"disk": "sdc", ...}, ...]}, ...],
+       "special": [...], "cache": [...], "log": [...], "spare": [...], "dedup": [...]}
+    """
+    results: list[tuple[str, str, str]] = []
+    vdev_categories = ("data", "special", "cache", "log", "spare", "dedup")
+
+    for category in vdev_categories:
+        vdevs = topology.get(category)
+        if not isinstance(vdevs, list):
+            continue
+        for vdev in vdevs:
+            if not isinstance(vdev, dict):
+                continue
+            vdev_type = str(vdev.get("type", "UNKNOWN"))  # pyright: ignore[reportAny]
+            children = vdev.get("children")
+            if isinstance(children, list) and children:
+                # Vdev with children (mirror, raidz, etc.)
+                for child in children:
+                    if isinstance(child, dict):
+                        disk = str(child.get("disk", ""))  # pyright: ignore[reportAny]
+                        if disk:
+                            results.append((category, vdev_type, disk))
+            else:
+                # Single-disk vdev (stripe) — the vdev itself IS the disk
+                disk = str(vdev.get("disk", ""))  # pyright: ignore[reportAny]
+                if disk:
+                    results.append((category, vdev_type, disk))
+
+    return results
+
+
 def _format_pools(pools: list[TruenasPoolEntry], datasets: list[TruenasDatasetEntry]) -> str:
     """Format TrueNAS pools and top-level dataset usage into a readable string."""
     if not pools:
@@ -221,6 +256,22 @@ def _format_pools(pools: list[TruenasPoolEntry], datasets: list[TruenasDatasetEn
         lines.append(f"    Size: {_format_bytes(size)}")
         lines.append(f"    Used: {_format_bytes(allocated)} ({pct:.1f}%)")
         lines.append(f"    Free: {_format_bytes(free)}")
+
+        # Show disk topology — which disks are in which vdev category
+        topology = pool.get("topology")
+        if isinstance(topology, dict):
+            disk_info = _extract_topology_disks(topology)
+            if disk_info:
+                # Group by category
+                categories: dict[str, list[tuple[str, str]]] = {}
+                for category, vdev_type, disk in disk_info:
+                    categories.setdefault(category, []).append((vdev_type, disk))
+
+                lines.append("    Disk topology:")
+                for category, members in categories.items():
+                    vdev_type = members[0][0] if members else "UNKNOWN"
+                    disk_names = [m[1] for m in members]
+                    lines.append(f"      {category} ({vdev_type}): {', '.join(disk_names)}")
 
         # Show top-level datasets for this pool
         pool_datasets = [d for d in datasets if d.get("pool") == name and "/" not in d.get("id", "/")]

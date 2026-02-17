@@ -15,6 +15,7 @@ from src.agent.tools.truenas import (
     TruenasSnapshotEntry,
     TruenasSnapshotTaskEntry,
     TruenasSystemInfo,
+    _extract_topology_disks,
     _format_apps,
     _format_bytes,
     _format_cron_schedule,
@@ -37,6 +38,68 @@ class TestFormatBytes:
     def test_tebibytes(self) -> None:
         result = _format_bytes(16 * 1024**4)
         assert "TiB" in result
+
+
+class TestExtractTopologyDisks:
+    def test_mirror_vdev(self) -> None:
+        topology: dict[str, object] = {
+            "data": [
+                {
+                    "type": "MIRROR",
+                    "children": [
+                        {"disk": "sdf", "status": "ONLINE"},
+                        {"disk": "sdh", "status": "ONLINE"},
+                    ],
+                }
+            ],
+        }
+        result = _extract_topology_disks(topology)
+        assert ("data", "MIRROR", "sdf") in result
+        assert ("data", "MIRROR", "sdh") in result
+
+    def test_special_vdev(self) -> None:
+        topology: dict[str, object] = {
+            "special": [
+                {
+                    "type": "MIRROR",
+                    "children": [
+                        {"disk": "sdb", "status": "ONLINE"},
+                        {"disk": "sdd", "status": "ONLINE"},
+                    ],
+                }
+            ],
+        }
+        result = _extract_topology_disks(topology)
+        assert ("special", "MIRROR", "sdb") in result
+        assert ("special", "MIRROR", "sdd") in result
+
+    def test_single_disk_vdev(self) -> None:
+        topology: dict[str, object] = {
+            "data": [{"type": "DISK", "disk": "sdg", "children": []}],
+        }
+        result = _extract_topology_disks(topology)
+        assert ("data", "DISK", "sdg") in result
+
+    def test_empty_topology(self) -> None:
+        assert _extract_topology_disks({}) == []
+
+    def test_multiple_categories(self) -> None:
+        topology: dict[str, object] = {
+            "data": [
+                {"type": "MIRROR", "children": [{"disk": "sdc"}, {"disk": "sde"}]},
+            ],
+            "special": [
+                {"type": "MIRROR", "children": [{"disk": "sdb"}, {"disk": "sdd"}]},
+            ],
+            "cache": [],
+            "log": [],
+        }
+        result = _extract_topology_disks(topology)
+        assert len(result) == 4
+        data_disks = [r[2] for r in result if r[0] == "data"]
+        special_disks = [r[2] for r in result if r[0] == "special"]
+        assert set(data_disks) == {"sdc", "sde"}
+        assert set(special_disks) == {"sdb", "sdd"}
 
 
 class TestFormatPools:
@@ -71,6 +134,56 @@ class TestFormatPools:
         result = _format_pools([pool], [])
         assert "DEGRADED" in result
         assert "UNHEALTHY" in result
+
+    def test_pool_with_topology(self) -> None:
+        pool: TruenasPoolEntry = {
+            "name": "tank",
+            "status": "ONLINE",
+            "healthy": True,
+            "size": 16 * 1024**4,
+            "allocated": 8 * 1024**4,
+            "free": 8 * 1024**4,
+            "topology": {
+                "data": [
+                    {
+                        "type": "MIRROR",
+                        "children": [
+                            {"disk": "sdf", "status": "ONLINE"},
+                            {"disk": "sdh", "status": "ONLINE"},
+                        ],
+                    }
+                ],
+                "special": [
+                    {
+                        "type": "MIRROR",
+                        "children": [
+                            {"disk": "sdb", "status": "ONLINE"},
+                            {"disk": "sdd", "status": "ONLINE"},
+                        ],
+                    }
+                ],
+            },
+        }
+        result = _format_pools([pool], [])
+        assert "Disk topology:" in result
+        assert "data (MIRROR): sdf, sdh" in result
+        assert "special (MIRROR): sdb, sdd" in result
+
+    def test_pool_single_disk_vdev(self) -> None:
+        """Single-disk vdev (stripe) where the vdev itself is the disk."""
+        pool: TruenasPoolEntry = {
+            "name": "swift",
+            "status": "ONLINE",
+            "healthy": True,
+            "size": 1024**4,
+            "allocated": 0,
+            "free": 1024**4,
+            "topology": {
+                "data": [{"type": "DISK", "disk": "sdg", "children": []}],
+            },
+        }
+        result = _format_pools([pool], [])
+        assert "data (DISK): sdg" in result
 
     def test_pool_with_datasets(self) -> None:
         pool: TruenasPoolEntry = {

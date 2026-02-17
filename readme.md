@@ -647,7 +647,7 @@ homelab-sre-assistant/
 ├── scripts/
 │   ├── ingest_runbooks.py        # Rebuild Chroma vector store
 │   └── install-hooks.sh          # Install git pre-push hook
-├── tests/                        # Unit + integration tests (290 passing)
+├── tests/                        # Unit + integration tests (297 passing)
 ├── docs/                         # Design documentation
 │   ├── architecture.md           # System overview, data flow, deployment
 │   ├── tool-reference.md         # All tools with inputs and examples

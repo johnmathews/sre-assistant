@@ -26,7 +26,7 @@ BASE = "https://truenas.test/api/v2.0"
 @pytest.mark.integration
 class TestTruenasPoolStatus:
     @respx.mock
-    async def test_healthy_pool(self) -> None:
+    async def test_healthy_pool_with_topology(self) -> None:
         respx.get(f"{BASE}/pool").mock(
             return_value=httpx.Response(
                 200,
@@ -38,6 +38,26 @@ class TestTruenasPoolStatus:
                         "size": 16 * 1024**4,
                         "allocated": 8 * 1024**4,
                         "free": 8 * 1024**4,
+                        "topology": {
+                            "data": [
+                                {
+                                    "type": "MIRROR",
+                                    "children": [
+                                        {"disk": "sdf", "status": "ONLINE"},
+                                        {"disk": "sdh", "status": "ONLINE"},
+                                    ],
+                                }
+                            ],
+                            "special": [
+                                {
+                                    "type": "MIRROR",
+                                    "children": [
+                                        {"disk": "sdb", "status": "ONLINE"},
+                                        {"disk": "sdd", "status": "ONLINE"},
+                                    ],
+                                }
+                            ],
+                        },
                     }
                 ],
             )
@@ -49,6 +69,8 @@ class TestTruenasPoolStatus:
         assert "tank" in result
         assert "ONLINE" in result
         assert "HEALTHY" in result
+        assert "data (MIRROR): sdf, sdh" in result
+        assert "special (MIRROR): sdb, sdd" in result
 
     @respx.mock
     async def test_connect_error(self) -> None:
