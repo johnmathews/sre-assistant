@@ -6,6 +6,7 @@ from src.agent.tools.disk_status import (
     _STANDBY_STATES,
     POWER_STATE_LABELS,
     _build_disk_lookup,
+    _compute_time_in_state,
     _count_group_transitions,
     _extract_hex,
     _format_disk_name,
@@ -208,3 +209,57 @@ class TestCountGroupTransitions:
             [1700000180, "0"],  # standby — real transition!
         ]
         assert _count_group_transitions(values) == 1
+
+
+class TestComputeTimeInState:
+    """Tests for _compute_time_in_state percentage calculations."""
+
+    def test_empty_values(self) -> None:
+        result = _compute_time_in_state([])
+        assert result == {"active": 0.0, "standby": 0.0, "error": 0.0}
+
+    def test_single_value(self) -> None:
+        result = _compute_time_in_state([[1700000000, "2"]])
+        assert result == {"active": 0.0, "standby": 0.0, "error": 0.0}
+
+    def test_all_standby(self) -> None:
+        values = [
+            [1700000000, "0"],
+            [1700000060, "0"],
+            [1700000120, "0"],
+        ]
+        result = _compute_time_in_state(values)
+        assert result["standby"] == 100.0
+        assert result["active"] == 0.0
+
+    def test_all_active(self) -> None:
+        values = [
+            [1700000000, "3"],
+            [1700000060, "4"],  # sub-state change, still active
+            [1700000120, "6"],
+        ]
+        result = _compute_time_in_state(values)
+        assert result["active"] == 100.0
+        assert result["standby"] == 0.0
+
+    def test_half_and_half(self) -> None:
+        """Equal time in standby and active."""
+        values = [
+            [1700000000, "0"],  # standby for 100s
+            [1700000100, "2"],  # active for 100s
+            [1700000200, "2"],
+        ]
+        result = _compute_time_in_state(values)
+        assert result["standby"] == 50.0
+        assert result["active"] == 50.0
+
+    def test_mostly_standby(self) -> None:
+        """75% standby, 25% active."""
+        values = [
+            [1700000000, "0"],  # standby for 300s
+            [1700000300, "2"],  # active for 100s
+            [1700000400, "2"],
+        ]
+        result = _compute_time_in_state(values)
+        assert result["standby"] == 75.0
+        assert result["active"] == 25.0

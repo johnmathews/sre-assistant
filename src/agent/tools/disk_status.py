@@ -66,6 +66,54 @@ def _state_group(value: float) -> str:
     return "error"
 
 
+class DiskStats24h:
+    """Per-disk stats computed from a 24h range query."""
+
+    __slots__ = ("change_count", "standby_pct", "active_pct", "error_pct")
+
+    def __init__(
+        self,
+        change_count: int,
+        standby_pct: float,
+        active_pct: float,
+        error_pct: float,
+    ) -> None:
+        self.change_count = change_count
+        self.standby_pct = standby_pct
+        self.active_pct = active_pct
+        self.error_pct = error_pct
+
+
+def _compute_time_in_state(values: Sequence[object]) -> dict[str, float]:
+    """Compute fraction of time spent in each state group from range query values.
+
+    Uses the step duration between consecutive samples. Returns a dict
+    mapping group name ("active"/"standby"/"error") to percentage (0-100).
+    """
+    if len(values) < 2:
+        return {"active": 0.0, "standby": 0.0, "error": 0.0}
+
+    group_seconds: dict[str, float] = {"active": 0.0, "standby": 0.0, "error": 0.0}
+
+    for i in range(len(values) - 1):
+        curr = values[i]
+        nxt = values[i + 1]
+        if not isinstance(curr, list) or not isinstance(nxt, list):
+            continue
+        if len(curr) < 2 or len(nxt) < 2:
+            continue
+        ts_curr = float(curr[0])
+        ts_next = float(nxt[0])
+        duration = ts_next - ts_curr
+        group = _state_group(float(str(curr[1])))
+        group_seconds[group] = group_seconds.get(group, 0.0) + duration
+
+    total = sum(group_seconds.values())
+    if total == 0:
+        return {"active": 0.0, "standby": 0.0, "error": 0.0}
+    return {g: round(s / total * 100, 1) for g, s in group_seconds.items()}
+
+
 def _count_group_transitions(values: Sequence[object]) -> int:
     """Count how many times the state group changes in a Prometheus range result.
 
@@ -201,8 +249,8 @@ async def _find_transition_window() -> tuple[str | None, dict[str, int]]:
     return None, {}
 
 
-async def _get_24h_change_counts() -> dict[str, int]:
-    """Get the number of power state group changes per disk in the last 24 hours.
+async def _get_24h_stats() -> dict[str, DiskStats24h]:
+    """Get per-disk stats from the last 24 hours: group transition count and time-in-state.
 
     Counts transitions between groups (active/standby/error), not sub-state
     fluctuations like idle_a ↔ idle_b.
@@ -222,13 +270,20 @@ async def _get_24h_change_counts() -> dict[str, int]:
     )
     if data.get("status") != "success":
         return {}
-    counts: dict[str, int] = {}
+    stats: dict[str, DiskStats24h] = {}
     for series in data.get("data", {}).get("result", []):
         metric = series.get("metric", {})
         device_id = metric.get("device_id", "unknown") if isinstance(metric, dict) else "unknown"
         values = series.get("values", [])
-        counts[device_id] = _count_group_transitions(values if isinstance(values, list) else [])
-    return counts
+        vals = values if isinstance(values, list) else []
+        pcts = _compute_time_in_state(vals)
+        stats[device_id] = DiskStats24h(
+            change_count=_count_group_transitions(vals),
+            standby_pct=pcts["standby"],
+            active_pct=pcts["active"],
+            error_pct=pcts["error"],
+        )
+    return stats
 
 
 async def _find_transition_times(window: str) -> dict[str, str]:
@@ -391,21 +446,24 @@ async def hdd_power_status() -> str:
         lines.append(f"Other ({len(other_disks)}):")
         lines.extend(other_disks)
 
-    # Step 4: Get 24h change counts (always useful context)
-    change_counts_24h: dict[str, int] = {}
+    # Step 4: Get 24h stats (change counts + time-in-state)
+    stats_24h: dict[str, DiskStats24h] = {}
     try:
-        change_counts_24h = await _get_24h_change_counts()
+        stats_24h = await _get_24h_stats()
     except Exception:
-        logger.warning("Failed to query 24h change counts", exc_info=True)
+        logger.warning("Failed to query 24h stats", exc_info=True)
 
-    if change_counts_24h:
-        total_changes = sum(change_counts_24h.values())
-        lines.append(f"\nState changes in last 24h: {total_changes} total")
-        for device_id, count in change_counts_24h.items():
+    if stats_24h:
+        total_changes = sum(s.change_count for s in stats_24h.values())
+        lines.append(f"\nLast 24h: {total_changes} state change(s) total")
+        for device_id, stats in stats_24h.items():
             hex_key = _extract_hex(device_id)
             disk_entry = disk_lookup.get(hex_key)
             disk_name = _format_disk_name(disk_entry, device_id)
-            lines.append(f"  {disk_name} — {count} change(s)")
+            lines.append(
+                f"  {disk_name} — {stats.change_count} change(s), "
+                f"standby {stats.standby_pct}%, active {stats.active_pct}%"
+            )
 
     # Step 5: Find last state transitions
     lines.append("\nLast power state change:")

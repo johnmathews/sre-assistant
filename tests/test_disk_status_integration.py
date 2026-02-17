@@ -208,8 +208,9 @@ class TestHddPowerStatus:
         assert "→" in result
         # sdf should show no change
         assert "no change" in result.lower()
-        # Should show 24h change counts
-        assert "1 total" in result or "1 change" in result
+        # Should show 24h stats
+        assert "1 change" in result
+        assert "%" in result
 
     @respx.mock
     async def test_shows_24h_change_counts(self) -> None:
@@ -263,9 +264,13 @@ class TestHddPowerStatus:
         result = await hdd_power_status.ainvoke({})
 
         # Should show total and per-disk counts
-        assert "5 total" in result
+        assert "5" in result and "total" in result
         assert "3 change" in result
         assert "2 change" in result
+        # Should show time-in-state percentages
+        assert "standby" in result
+        assert "active" in result
+        assert "%" in result
 
     @respx.mock
     async def test_prometheus_unreachable(self) -> None:
