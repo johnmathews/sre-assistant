@@ -41,6 +41,9 @@ class TestParseDuration:
     def test_days(self) -> None:
         assert _parse_duration("1d") == 86400.0
 
+    def test_weeks(self) -> None:
+        assert _parse_duration("1w") == 604800.0
+
     def test_numeric_string(self) -> None:
         assert _parse_duration("60") == 60.0
 

@@ -124,7 +124,7 @@ def _parse_duration(step: str) -> float | None:
     except ValueError:
         pass
 
-    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
     if step and step[-1] in multipliers:
         try:
             return float(step[:-1]) * multipliers[step[-1]]

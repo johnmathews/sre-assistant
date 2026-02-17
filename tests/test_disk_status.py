@@ -6,11 +6,13 @@ from src.agent.tools.disk_status import (
     _STANDBY_STATES,
     POWER_STATE_LABELS,
     _build_disk_lookup,
+    _build_promql,
     _compute_time_in_state,
     _count_group_transitions,
     _extract_hex,
     _format_disk_name,
     _format_power_state,
+    _select_step,
     _state_group,
 )
 from src.agent.tools.truenas import TruenasDiskEntry
@@ -263,3 +265,29 @@ class TestComputeTimeInState:
         result = _compute_time_in_state(values)
         assert result["standby"] == 75.0
         assert result["active"] == 25.0
+
+
+class TestBuildPromql:
+    """Tests for _build_promql PromQL query builder."""
+
+    def test_no_filter(self) -> None:
+        assert _build_promql() == 'disk_power_state{type="hdd"}'
+
+    def test_with_pool(self) -> None:
+        assert _build_promql(pool="tank") == 'disk_power_state{type="hdd", pool="tank"}'
+
+    def test_none_pool(self) -> None:
+        assert _build_promql(pool=None) == 'disk_power_state{type="hdd"}'
+
+
+class TestSelectStep:
+    """Tests for _select_step Prometheus step selection."""
+
+    def test_short_duration(self) -> None:
+        assert _select_step(3600) == "15s"  # 1h
+
+    def test_medium_duration(self) -> None:
+        assert _select_step(43200) == "60s"  # 12h
+
+    def test_long_duration(self) -> None:
+        assert _select_step(604800) == "5m"  # 7d

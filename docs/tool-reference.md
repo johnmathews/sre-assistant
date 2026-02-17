@@ -154,9 +154,11 @@ List apps installed on TrueNAS SCALE with their running state.
 
 Complete HDD power status summary: current state, human-readable disk names, and transition history.
 
-- **Input:** none
-- **Example questions:** "Which HDDs are spun up?", "What was the last HDD to spin up?", "Are the drives spun down?", "When did the HDDs last change power state?", "How many state changes in the last 12 hours?"
-- **Returns:** Per-disk power state (standby, idle, active_or_idle, idle_a/b/c, active, sleep, error, unknown) with model, size, serial, pool. 24-hour change counts per disk. Last power state change timestamp with from/to transition. Automatically cross-references Prometheus `disk_power_state` with TrueNAS disk inventory and uses progressive `changes()` widening to find transitions.
+- **Input:**
+  - `duration` (string, default `"24h"`) — time window for stats and transition history. Examples: `"1h"`, `"6h"`, `"12h"`, `"24h"`, `"3d"`, `"1w"`.
+  - `pool` (string or null, default `null`) — optional ZFS pool name filter (e.g. `"tank"`, `"backup"`). If omitted, all HDD pools are included.
+- **Example questions:** "Which HDDs are spun up?", "Are the backup pool drives spun down?" (`pool='backup'`), "How many state changes in the last 12 hours?" (`duration='12h'`), "Were the tank HDDs active this week?" (`duration='1w', pool='tank'`), "What fraction of the last 6h were my drives in standby?" (`duration='6h'`)
+- **Returns:** Per-disk power state (standby, idle, active_or_idle, idle_a/b/c, active, sleep, error, unknown) with model, size, serial, pool. Change counts and time-in-state percentages for the requested duration. Last power state change timestamp with from/to transition. Automatically cross-references Prometheus `disk_power_state` with TrueNAS disk inventory and uses progressive `changes()` widening to find transitions.
 
 ## Proxmox Backup Server (enabled when `PBS_URL` is set)
 

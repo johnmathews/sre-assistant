@@ -176,7 +176,7 @@ Create a `.env` file on the deployment host. See `.env.example` for the full lis
 
 | Variable              | Enables                     |
 | --------------------- | --------------------------- |
-| `TRUENAS_URL`         | TrueNAS SCALE tools (5 tools) |
+| `TRUENAS_URL`         | TrueNAS SCALE tools (5 tools) + HDD Power Status (1 tool) |
 | `TRUENAS_API_KEY`     | TrueNAS API auth (Bearer token) |
 | `PROXMOX_URL`         | Proxmox VE tools (4 tools)  |
 | `PROXMOX_API_TOKEN`   | PVE API auth                |
@@ -347,15 +347,16 @@ to use based on the question.
 
 ## Current Capabilities
 
-The assistant has **up to 21 tools** across 7 categories, depending on which integrations are configured:
+The assistant has **up to 22 tools** across 8 categories, depending on which integrations are configured:
 
 **Always available (6 tools):**
 - Prometheus — metric search, instant queries, range queries (3 tools)
 - Grafana — active alerts, alert rule definitions (2 tools)
 - Runbook RAG — semantic search over operational runbooks (1 tool)
 
-**Available when configured (15 tools):**
+**Available when configured (16 tools):**
 - TrueNAS SCALE — pool health, NFS/SMB shares, snapshots/replication, system status/alerts/disks, apps (5 tools, requires `TRUENAS_URL`)
+- HDD Power Status — power state summary with configurable duration and pool filter (1 tool, requires `TRUENAS_URL`)
 - Proxmox VE — guest listing, guest config, node status, task history (4 tools, requires `PROXMOX_URL`)
 - PBS — datastore status, backup groups, task history (3 tools, requires `PBS_URL`)
 - Loki — log queries, label discovery, change correlation timelines (3 tools, requires `LOKI_URL`)

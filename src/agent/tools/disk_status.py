@@ -11,13 +11,14 @@ from datetime import UTC, datetime
 
 import httpx
 from langchain_core.tools import ToolException, tool  # pyright: ignore[reportUnknownVariableType]
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.agent.tools.prometheus import (
     DEFAULT_TIMEOUT_SECONDS as PROM_TIMEOUT,
 )
 from src.agent.tools.prometheus import (
     PrometheusSeries,
+    _parse_duration,
     _query_prometheus,
 )
 from src.agent.tools.truenas import (
@@ -66,7 +67,7 @@ def _state_group(value: float) -> str:
     return "error"
 
 
-class DiskStats24h:
+class DiskStats:
     """Per-disk stats computed from a 24h range query."""
 
     __slots__ = ("change_count", "standby_pct", "active_pct", "error_pct")
@@ -139,6 +140,25 @@ def _count_group_transitions(values: Sequence[object]) -> int:
 # Time windows for progressive changes() widening (seconds)
 TRANSITION_WINDOWS = ["1h", "6h", "24h", "7d"]
 
+# Consolidated window-to-seconds mapping (used by multiple functions)
+WINDOW_SECONDS: dict[str, int] = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800}
+
+
+def _select_step(duration_seconds: int) -> str:
+    """Choose an appropriate Prometheus range query step for the given duration."""
+    if duration_seconds <= 3600:
+        return "15s"
+    if duration_seconds <= 86400:
+        return "60s"
+    return "5m"
+
+
+def _build_promql(pool: str | None = None) -> str:
+    """Build the PromQL selector for HDD power state, optionally filtered by pool."""
+    if pool:
+        return f'disk_power_state{{type="hdd", pool="{pool}"}}'
+    return 'disk_power_state{type="hdd"}'
+
 
 # --- Hex extraction for cross-referencing ---
 
@@ -190,18 +210,18 @@ def _format_power_state(value: float) -> str:
 # --- Prometheus queries ---
 
 
-async def _get_current_power_states() -> list[PrometheusSeries]:
+async def _get_current_power_states(pool: str | None = None) -> list[PrometheusSeries]:
     """Get current disk_power_state{type='hdd'} from Prometheus."""
     data = await _query_prometheus(
         "/api/v1/query",
-        {"query": 'disk_power_state{type="hdd"}'},
+        {"query": _build_promql(pool)},
     )
     if data.get("status") != "success":
         return []
     return list(data.get("data", {}).get("result", []))
 
 
-async def _find_transition_window() -> tuple[str | None, dict[str, int]]:
+async def _find_transition_window(pool: str | None = None) -> tuple[str | None, dict[str, int]]:
     """Find the shortest time window that contains power state group changes.
 
     Uses range queries with progressive widening: 1h → 6h → 24h → 7d.
@@ -209,23 +229,18 @@ async def _find_transition_window() -> tuple[str | None, dict[str, int]]:
     not sub-state fluctuations (e.g. idle_a ↔ idle_b).
     Returns (window_string, per_device_change_counts) or (None, {}).
     """
-    window_seconds: dict[str, int] = {
-        "1h": 3600,
-        "6h": 21600,
-        "24h": 86400,
-        "7d": 604800,
-    }
+    query = _build_promql(pool)
     for window in TRANSITION_WINDOWS:
-        duration = window_seconds.get(window, 3600)
+        duration = WINDOW_SECONDS.get(window, 3600)
         now = datetime.now(UTC)
         start_ts = str(int(now.timestamp()) - duration)
         end_ts = str(int(now.timestamp()))
-        step = "15s" if duration <= 3600 else "60s" if duration <= 86400 else "5m"
+        step = _select_step(duration)
 
         data = await _query_prometheus(
             "/api/v1/query_range",
             {
-                "query": 'disk_power_state{type="hdd"}',
+                "query": query,
                 "start": start_ts,
                 "end": end_ts,
                 "step": step,
@@ -249,35 +264,38 @@ async def _find_transition_window() -> tuple[str | None, dict[str, int]]:
     return None, {}
 
 
-async def _get_24h_stats() -> dict[str, DiskStats24h]:
-    """Get per-disk stats from the last 24 hours: group transition count and time-in-state.
+async def _get_stats(
+    duration_seconds: int = 86400,
+    pool: str | None = None,
+) -> dict[str, DiskStats]:
+    """Get per-disk stats for a given duration: group transition count and time-in-state.
 
     Counts transitions between groups (active/standby/error), not sub-state
     fluctuations like idle_a ↔ idle_b.
     """
     now = datetime.now(UTC)
-    start_ts = str(int(now.timestamp()) - 86400)
+    start_ts = str(int(now.timestamp()) - duration_seconds)
     end_ts = str(int(now.timestamp()))
 
     data = await _query_prometheus(
         "/api/v1/query_range",
         {
-            "query": 'disk_power_state{type="hdd"}',
+            "query": _build_promql(pool),
             "start": start_ts,
             "end": end_ts,
-            "step": "60s",
+            "step": _select_step(duration_seconds),
         },
     )
     if data.get("status") != "success":
         return {}
-    stats: dict[str, DiskStats24h] = {}
+    stats: dict[str, DiskStats] = {}
     for series in data.get("data", {}).get("result", []):
         metric = series.get("metric", {})
         device_id = metric.get("device_id", "unknown") if isinstance(metric, dict) else "unknown"
         values = series.get("values", [])
         vals = values if isinstance(values, list) else []
         pcts = _compute_time_in_state(vals)
-        stats[device_id] = DiskStats24h(
+        stats[device_id] = DiskStats(
             change_count=_count_group_transitions(vals),
             standby_pct=pcts["standby"],
             active_pct=pcts["active"],
@@ -286,30 +304,24 @@ async def _get_24h_stats() -> dict[str, DiskStats24h]:
     return stats
 
 
-async def _find_transition_times(window: str) -> dict[str, str]:
+async def _find_transition_times(
+    window: str,
+    pool: str | None = None,
+) -> dict[str, str]:
     """Pinpoint when each disk last changed state by range-querying within the window.
 
     Returns a dict mapping device_id to a human-readable transition description.
     """
-    # Map window string to seconds for range calculation
-    window_seconds: dict[str, int] = {
-        "1h": 3600,
-        "6h": 21600,
-        "24h": 86400,
-        "7d": 604800,
-    }
-    duration = window_seconds.get(window, 3600)
+    duration = WINDOW_SECONDS.get(window, 3600)
     now = datetime.now(UTC)
     start_ts = str(int(now.timestamp()) - duration)
     end_ts = str(int(now.timestamp()))
-
-    # Use a step that gives reasonable resolution without too many points
-    step = "15s" if duration <= 3600 else "60s" if duration <= 86400 else "5m"
+    step = _select_step(duration)
 
     data = await _query_prometheus(
         "/api/v1/query_range",
         {
-            "query": 'disk_power_state{type="hdd"}',
+            "query": _build_promql(pool),
             "start": start_ts,
             "end": end_ts,
             "step": step,
@@ -354,35 +366,57 @@ async def _find_transition_times(window: str) -> dict[str, str]:
 
 
 class HddPowerStatusInput(BaseModel):
-    """Input for HDD power status summary (no parameters needed)."""
+    """Input for HDD power status summary."""
 
-    pass
+    duration: str = Field(
+        default="24h",
+        description=(
+            "Time window for stats and transition history. "
+            "Examples: '1h', '6h', '12h', '24h', '3d', '1w'. Default '24h'."
+        ),
+    )
+    pool: str | None = Field(
+        default=None,
+        description=(
+            "Optional ZFS pool name to filter disks (e.g. 'tank', 'backup'). If omitted, all HDD pools are included."
+        ),
+    )
 
 
 TOOL_DESCRIPTION = (
     "Get a complete HDD power status summary for TrueNAS: which disks are spun up "
     "or in standby, mapped to human-readable disk names (model, size, serial), "
-    "how many state changes occurred in the last 24 hours, "
+    "how many state changes occurred in the requested duration, "
     "and when each disk last changed power state.\n\n"
+    "Accepts optional `duration` (default '24h') and `pool` filter.\n\n"
     "Use this for ANY question about HDD power state, spinup, spindown, or disk activity. "
     "This tool handles all the cross-referencing and transition detection automatically.\n\n"
     "Examples:\n"
-    "- 'Which HDDs are spun up?'\n"
-    "- 'What was the last HDD to spin up?'\n"
-    "- 'Are the drives spun down?'\n"
-    "- 'When did the HDDs last change power state?'\n"
-    "- 'How many state changes in the last 12 hours?'"
+    "- 'Which HDDs are spun up?' → hdd_power_status()\n"
+    "- 'Are the backup drives spun down?' → hdd_power_status(pool='backup')\n"
+    "- 'How many state changes in the last 12 hours?' → hdd_power_status(duration='12h')\n"
+    "- 'Were the tank HDDs active this week?' → hdd_power_status(duration='1w', pool='tank')\n"
+    "- 'What fraction of the last 6h were my drives in standby?' → hdd_power_status(duration='6h')"
 )
 
 
 @tool("hdd_power_status", args_schema=HddPowerStatusInput)  # pyright: ignore[reportUnknownParameterType]
-async def hdd_power_status() -> str:
+async def hdd_power_status(
+    duration: str = "24h",
+    pool: str | None = None,
+) -> str:
     """Get complete HDD power status summary. See TOOL_DESCRIPTION."""
+    # Parse and validate the duration
+    duration_seconds = _parse_duration(duration)
+    if duration_seconds is None or duration_seconds <= 0:
+        raise ToolException(f"Invalid duration '{duration}'. Use a value like '1h', '6h', '12h', '24h', '3d', or '1w'.")
+    dur_int = int(duration_seconds)
+
     settings = get_settings()
 
     # Step 1: Get current power states from Prometheus
     try:
-        power_states = await _get_current_power_states()
+        power_states = await _get_current_power_states(pool=pool)
     except httpx.ConnectError as e:
         raise ToolException(f"Cannot connect to Prometheus: {e}") from e
     except httpx.TimeoutException as e:
@@ -412,7 +446,7 @@ async def hdd_power_status() -> str:
 
     for series in power_states:
         device_id = series.get("metric", {}).get("device_id", "unknown")
-        pool = series.get("metric", {}).get("pool", "")
+        series_pool = series.get("metric", {}).get("pool", "")
         value_pair = series.get("value", [0, "0"])
         power_value = float(str(value_pair[1])) if len(value_pair) > 1 else -1
         power_int = int(power_value)
@@ -422,7 +456,7 @@ async def hdd_power_status() -> str:
         disk_entry = disk_lookup.get(hex_key)
         disk_name = _format_disk_name(disk_entry, device_id)
         state_label = _format_power_state(power_value)
-        pool_str = f" [pool: {pool}]" if pool else ""
+        pool_str = f" [pool: {series_pool}]" if series_pool else ""
 
         line = f"  {disk_name} — {state_label}{pool_str}"
         if power_int in _STANDBY_STATES:
@@ -446,27 +480,27 @@ async def hdd_power_status() -> str:
         lines.append(f"Other ({len(other_disks)}):")
         lines.extend(other_disks)
 
-    # Step 4: Get 24h stats (change counts + time-in-state)
-    stats_24h: dict[str, DiskStats24h] = {}
+    # Step 4: Get stats for the requested duration (change counts + time-in-state)
+    period_stats: dict[str, DiskStats] = {}
     try:
-        stats_24h = await _get_24h_stats()
+        period_stats = await _get_stats(dur_int, pool)
     except Exception:
-        logger.warning("Failed to query 24h stats", exc_info=True)
+        logger.warning("Failed to query stats for %s", duration, exc_info=True)
 
-    if stats_24h:
-        total_changes = sum(s.change_count for s in stats_24h.values())
-        lines.append(f"\nLast 24h: {total_changes} state change(s) total")
+    if period_stats:
+        total_changes = sum(s.change_count for s in period_stats.values())
+        lines.append(f"\nLast {duration}: {total_changes} state change(s) total")
         # Build pool lookup from current power states (metrics have pool label)
         pool_by_device: dict[str, str] = {}
         for series in power_states:
             did = series.get("metric", {}).get("device_id", "unknown")
             pool_by_device[did] = series.get("metric", {}).get("pool", "")
-        for device_id, stats in stats_24h.items():
+        for device_id, stats in period_stats.items():
             hex_key = _extract_hex(device_id)
             disk_entry = disk_lookup.get(hex_key)
             disk_name = _format_disk_name(disk_entry, device_id)
-            pool = pool_by_device.get(device_id, "")
-            pool_str = f" [pool: {pool}]" if pool else ""
+            dev_pool = pool_by_device.get(device_id, "")
+            pool_str = f" [pool: {dev_pool}]" if dev_pool else ""
             lines.append(
                 f"  {disk_name}{pool_str} — {stats.change_count} change(s), "
                 f"standby {stats.standby_pct}%, active {stats.active_pct}%"
@@ -475,14 +509,14 @@ async def hdd_power_status() -> str:
     # Step 5: Find last state transitions
     lines.append("\nLast power state change:")
     try:
-        window, _ = await _find_transition_window()
+        window, _ = await _find_transition_window(pool=pool)
         if window is None:
             lines.append(
                 "  No power state changes detected in the last 7 days. "
                 "All disks have been in their current state for at least 7 days."
             )
         else:
-            transitions = await _find_transition_times(window)
+            transitions = await _find_transition_times(window, pool=pool)
             if not transitions:
                 lines.append(f"  Changes detected in the last {window} but could not pinpoint exact times.")
             else:

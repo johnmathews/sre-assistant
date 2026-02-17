@@ -307,3 +307,60 @@ class TestHddPowerStatus:
         assert "active_or_idle" in result
         assert "standby" in result
         assert "wwn-0x5000c500eb02b449" in result
+
+    @respx.mock
+    async def test_custom_duration_12h(self) -> None:
+        """Passing duration='12h' uses that window for stats."""
+        respx.get("http://prometheus.test:9090/api/v1/query").mock(
+            return_value=_mock_power_state_response(POWER_STATE_RESULTS),
+        )
+        respx.get("http://prometheus.test:9090/api/v1/query_range").mock(
+            side_effect=[
+                _mock_range_response(_stable_range_data()),  # stats for 12h
+                *[_mock_range_response(_stable_range_data()) for _ in range(4)],  # windows
+            ]
+        )
+        respx.get("https://truenas.test/api/v2.0/disk").mock(return_value=_mock_truenas_disks())
+
+        result = await hdd_power_status.ainvoke({"duration": "12h"})
+        assert "Last 12h" in result
+
+    @respx.mock
+    async def test_pool_filter(self) -> None:
+        """Passing pool='tank' filters queries to that pool."""
+        respx.get("http://prometheus.test:9090/api/v1/query").mock(
+            return_value=_mock_power_state_response(POWER_STATE_RESULTS),
+        )
+        respx.get("http://prometheus.test:9090/api/v1/query_range").mock(
+            side_effect=[
+                _mock_range_response(_stable_range_data()),  # stats
+                *[_mock_range_response(_stable_range_data()) for _ in range(4)],  # windows
+            ]
+        )
+        respx.get("https://truenas.test/api/v2.0/disk").mock(return_value=_mock_truenas_disks())
+
+        result = await hdd_power_status.ainvoke({"pool": "tank"})
+        assert "HDD Power Status" in result
+
+    @respx.mock
+    async def test_invalid_duration_returns_error(self) -> None:
+        """Invalid duration string returns a clear error."""
+        result = await hdd_power_status.ainvoke({"duration": "banana"})
+        assert "Invalid duration" in result
+
+    @respx.mock
+    async def test_week_duration(self) -> None:
+        """Passing duration='1w' works with the week multiplier."""
+        respx.get("http://prometheus.test:9090/api/v1/query").mock(
+            return_value=_mock_power_state_response(POWER_STATE_RESULTS),
+        )
+        respx.get("http://prometheus.test:9090/api/v1/query_range").mock(
+            side_effect=[
+                _mock_range_response(_stable_range_data()),  # stats for 1w
+                *[_mock_range_response(_stable_range_data()) for _ in range(4)],  # windows
+            ]
+        )
+        respx.get("https://truenas.test/api/v2.0/disk").mock(return_value=_mock_truenas_disks())
+
+        result = await hdd_power_status.ainvoke({"duration": "1w"})
+        assert "Last 1w" in result
