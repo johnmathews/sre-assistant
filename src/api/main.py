@@ -51,6 +51,7 @@ class HealthResponse(BaseModel):
     """Response body for GET /health."""
 
     status: str
+    model: str
     components: list[ComponentHealth]
 
 
@@ -246,4 +247,4 @@ async def health() -> HealthResponse:
     else:
         overall = "degraded"
 
-    return HealthResponse(status=overall, components=components)
+    return HealthResponse(status=overall, model=settings.openai_model, components=components)

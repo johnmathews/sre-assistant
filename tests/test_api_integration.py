@@ -158,6 +158,7 @@ class TestHealthEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "healthy"
+        assert body["model"] == "gpt-4o-mini"
         assert len(body["components"]) == 7
         assert all(c["status"] == "healthy" for c in body["components"])
 

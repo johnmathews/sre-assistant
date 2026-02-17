@@ -113,8 +113,8 @@ List recent Proxmox tasks (migrations, backups, snapshots, etc).
 Get ZFS pool health and dataset space usage from TrueNAS.
 
 - **Input:** none
-- **Example questions:** "Is the tank pool healthy?", "How much space is left on the NAS?", "Any degraded pools?"
-- **Returns:** Pool status (ONLINE/DEGRADED/FAULTED), health flag, size/used/free space, top-level dataset usage
+- **Example questions:** "Is the tank pool healthy?", "How much space is left on the NAS?", "Any degraded pools?", "How big is my photos dataset?", "How much space does tank/media use?"
+- **Returns:** Pool status (ONLINE/DEGRADED/FAULTED), health flag, size/used/free space, disk topology, per-dataset used/available for each top-level dataset
 
 ### truenas_list_shares
 

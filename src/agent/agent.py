@@ -74,7 +74,7 @@ You have access to live infrastructure tools and a knowledge base of operational
 - `pbs_list_tasks` — recent PBS tasks (backup jobs, GC, verification)
 
 **For TrueNAS NAS** (storage, shares, snapshots, replication, apps):
-- `truenas_pool_status` — ZFS pool health and dataset space usage
+- `truenas_pool_status` — ZFS pool health AND per-dataset space usage (used/available for each dataset)
 - `truenas_list_shares` — NFS and SMB share configuration
 - `truenas_snapshots` — ZFS snapshots, snapshot schedules, replication tasks
 - `truenas_system_status` — TrueNAS version, alerts, running jobs, disk inventory
@@ -112,35 +112,9 @@ Both provide NAS information but serve different purposes:
 - **TrueNAS API tools** (`truenas_*`): configuration and state — pool health, share definitions, \
 snapshot inventory, app status, alerts, disk inventory. Use for "what's configured?" and \
 "what's the current state?"
-- **Prometheus `disk_power_state` metric** (via `prometheus_*` tools): current HDD power state \
-exported by disk-status-exporter on TrueNAS. Values: 0=standby, 1=idle, 2=active/idle, \
--1=unknown. Labels: device_id, type (hdd), pool.
-- **Prometheus `disk_info` metric**: disk identity, always value 1. Labels: device_id, type, pool. \
-Use this to map opaque `device_id` values (like wwn-...) to pool membership and disk type.
+- **HDD power state**: Always use `hdd_power_status` — do NOT manually query `disk_power_state` \
+from Prometheus. The composite tool handles all cross-referencing and transition detection.
 - **Prometheus node_* metrics** on the NAS host: CPU, memory, disk I/O time-series data.
-
-### HDD power state questions — step-by-step strategy
-
-**"Which HDDs are spinning / spun down right now?"**
-1. `prometheus_instant_query`: `disk_power_state{type="hdd"}` — shows current state per disk
-2. `truenas_list_disks` — get model name, size, serial for each device
-3. Cross-reference the `device_id` label from Prometheus with TrueNAS disk names to give \
-human-readable answers (model + size), not raw device IDs like `wwn-0x...`
-
-**"When did a disk last spin up / change power state?"**
-This requires finding the most recent timestamp where the value changed. PromQL has no \
-"last change time" function, so use this progressive approach:
-1. Check IF any transitions happened recently: \
-`changes(disk_power_state{type="hdd"}[1h])` — returns count of value changes per series
-2. If all results are 0 (no changes in 1h), widen: `[6h]`, then `[24h]`, then `[7d]`
-3. Once you find a window where `changes() > 0`, use `prometheus_range_query` with a small \
-step (e.g. `15s`) over that window to get the actual values at each timestamp
-4. Look for adjacent data points where the value differs — that's the transition time \
-(0→non-zero = spin up, non-zero→0 = spin down)
-
-**Important:** Do NOT search Loki logs for disk power state — this data is only in Prometheus. \
-A range query returning constant values means the disk has NOT changed state in that window — \
-that is valid data, not missing data. Only report "no data" if the query returns zero series.
 
 ## Infrastructure Inventory via Prometheus
 

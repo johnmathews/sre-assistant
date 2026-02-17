@@ -45,6 +45,9 @@ with st.sidebar:
         health_resp = httpx.get(f"{API_URL}/health", timeout=5.0)
         health_data: dict[str, object] = health_resp.json()
         overall = health_data.get("status", "unknown")
+        model_name = health_data.get("model")
+        if isinstance(model_name, str) and model_name:
+            st.caption(f"LLM: `{model_name}`")
 
         if overall == "healthy":
             st.success(f"Overall: {overall}")

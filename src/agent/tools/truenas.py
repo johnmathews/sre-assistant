@@ -540,9 +540,11 @@ TOOL_DESCRIPTION_POOL_STATUS = (
     "Get ZFS pool health and dataset space usage from TrueNAS. "
     "Use this to answer questions like 'is the tank pool healthy?', "
     "'how much space is left on the NAS?', 'any degraded pools?', "
+    "'how big is my photos dataset?', 'how much space does tank/media use?', "
     "or 'show ZFS pool usage'.\n\n"
     "Returns pool status (ONLINE/DEGRADED/FAULTED), health flag, "
-    "size/used/free space, and top-level dataset usage per pool."
+    "size/used/free space, disk topology, and per-dataset used/available for "
+    "each top-level dataset in each pool."
 )
 
 TOOL_DESCRIPTION_LIST_SHARES = (
