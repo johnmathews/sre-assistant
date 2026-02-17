@@ -101,11 +101,11 @@ async def _get_current_power_states() -> list[PrometheusSeries]:
     return list(data.get("data", {}).get("result", []))
 
 
-async def _find_transition_window() -> str | None:
+async def _find_transition_window() -> tuple[str | None, dict[str, int]]:
     """Find the shortest time window that contains power state changes.
 
     Uses changes() with progressive widening: 1h → 6h → 24h → 7d.
-    Returns the window string (e.g. '6h') or None if no changes found.
+    Returns (window_string, per_device_change_counts) or (None, {}).
     """
     for window in TRANSITION_WINDOWS:
         data = await _query_prometheus(
@@ -115,11 +115,35 @@ async def _find_transition_window() -> str | None:
         if data.get("status") != "success":
             continue
         results = data.get("data", {}).get("result", [])
+        counts: dict[str, int] = {}
+        has_changes = False
         for series in results:
+            device_id = series.get("metric", {}).get("device_id", "unknown")
             value_pair = series.get("value", [0, "0"])
-            if len(value_pair) > 1 and float(str(value_pair[1])) > 0:
-                return window
-    return None
+            count = int(float(str(value_pair[1]))) if len(value_pair) > 1 else 0
+            counts[device_id] = count
+            if count > 0:
+                has_changes = True
+        if has_changes:
+            return window, counts
+    return None, {}
+
+
+async def _get_24h_change_counts() -> dict[str, int]:
+    """Get the number of power state changes per disk in the last 24 hours."""
+    data = await _query_prometheus(
+        "/api/v1/query",
+        {"query": 'changes(disk_power_state{type="hdd"}[24h])'},
+    )
+    if data.get("status") != "success":
+        return {}
+    counts: dict[str, int] = {}
+    for series in data.get("data", {}).get("result", []):
+        device_id = series.get("metric", {}).get("device_id", "unknown")
+        value_pair = series.get("value", [0, "0"])
+        count = int(float(str(value_pair[1]))) if len(value_pair) > 1 else 0
+        counts[device_id] = count
+    return counts
 
 
 async def _find_transition_times(window: str) -> dict[str, str]:
@@ -197,6 +221,7 @@ class HddPowerStatusInput(BaseModel):
 TOOL_DESCRIPTION = (
     "Get a complete HDD power status summary for TrueNAS: which disks are spun up "
     "or in standby, mapped to human-readable disk names (model, size, serial), "
+    "how many state changes occurred in the last 24 hours, "
     "and when each disk last changed power state.\n\n"
     "Use this for ANY question about HDD power state, spinup, spindown, or disk activity. "
     "This tool handles all the cross-referencing and transition detection automatically.\n\n"
@@ -204,7 +229,8 @@ TOOL_DESCRIPTION = (
     "- 'Which HDDs are spun up?'\n"
     "- 'What was the last HDD to spin up?'\n"
     "- 'Are the drives spun down?'\n"
-    "- 'When did the HDDs last change power state?'"
+    "- 'When did the HDDs last change power state?'\n"
+    "- 'How many state changes in the last 12 hours?'"
 )
 
 
@@ -270,10 +296,26 @@ async def hdd_power_status() -> str:
         lines.append(f"In standby ({len(standby_disks)}):")
         lines.extend(standby_disks)
 
-    # Step 4: Find last state transitions
+    # Step 4: Get 24h change counts (always useful context)
+    change_counts_24h: dict[str, int] = {}
+    try:
+        change_counts_24h = await _get_24h_change_counts()
+    except Exception:
+        logger.warning("Failed to query 24h change counts", exc_info=True)
+
+    if change_counts_24h:
+        total_changes = sum(change_counts_24h.values())
+        lines.append(f"\nState changes in last 24h: {total_changes} total")
+        for device_id, count in change_counts_24h.items():
+            hex_key = _extract_hex(device_id)
+            disk_entry = disk_lookup.get(hex_key)
+            disk_name = _format_disk_name(disk_entry, device_id)
+            lines.append(f"  {disk_name} — {count} change(s)")
+
+    # Step 5: Find last state transitions
     lines.append("\nLast power state change:")
     try:
-        window = await _find_transition_window()
+        window, _ = await _find_transition_window()
         if window is None:
             lines.append(
                 "  No power state changes detected in the last 7 days. "
