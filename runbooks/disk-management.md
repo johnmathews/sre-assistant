@@ -136,11 +136,12 @@ increase(node_disk_io_time_seconds_total{instance=~".*truenas.*", device=~"sd[c-
 ### Recommended agent strategy
 
 For any HDD power state question (spinup, spindown, state changes), use the `hdd_power_status`
-tool. It handles all the complexity automatically:
+tool. It accepts optional `duration` (default `"24h"`, e.g. `"12h"`, `"3d"`, `"1w"`) and
+`pool` filter (e.g. `"tank"`, `"backup"`). It handles all the complexity automatically:
 
-- Queries current power state from Prometheus
+- Queries current power state from Prometheus (filtered by pool if specified)
 - Cross-references device IDs with TrueNAS disk inventory for human-readable names
-- Reports 24h change counts per disk
+- Reports change counts and time-in-state percentages for the requested duration
 - Uses progressive `changes()` widening (1h→6h→24h→7d) to find recent transitions
 - Pinpoints exact transition timestamps via range queries
 
