@@ -23,6 +23,8 @@ from src.agent.tools.prometheus import (
 )
 from src.agent.tools.truenas import (
     TruenasDiskEntry,
+    TruenasPoolEntry,
+    _extract_topology_disks,
     _format_bytes,
     _truenas_get,
 )
@@ -235,6 +237,35 @@ def _build_disk_lookup(disks: list[TruenasDiskEntry]) -> dict[str, TruenasDiskEn
         if hex_key:
             lookup[hex_key] = disk
     return lookup
+
+
+async def _enrich_disk_pools(disk_lookup: dict[str, TruenasDiskEntry]) -> None:
+    """Fill in missing pool assignments from /pool topology.
+
+    The TrueNAS /disk endpoint may return pool as null. The /pool endpoint's
+    topology reliably maps disks to pools. This mutates disk_lookup in place.
+    """
+    try:
+        pools_raw = await _truenas_get("/pool")
+        pools: list[TruenasPoolEntry] = pools_raw if isinstance(pools_raw, list) else []
+    except Exception:
+        logger.warning("Could not fetch /pool for disk-to-pool mapping")
+        return
+
+    # Build disk_name → pool_name from topology
+    disk_to_pool: dict[str, str] = {}
+    for pool in pools:
+        pool_name = pool.get("name", "")
+        topology = pool.get("topology")
+        if isinstance(topology, dict) and pool_name:
+            for _, _, disk_name in _extract_topology_disks(topology):
+                disk_to_pool[disk_name] = pool_name
+
+    # Enrich entries that lack pool info
+    for disk_entry in disk_lookup.values():
+        name = disk_entry.get("name", "")
+        if name in disk_to_pool and not disk_entry.get("pool"):
+            disk_entry["pool"] = disk_to_pool[name]
 
 
 def _format_disk_name(disk: TruenasDiskEntry | None, device_id: str) -> str:
@@ -482,6 +513,9 @@ async def hdd_power_status(
             disk_lookup = _build_disk_lookup(disks)
         except Exception:
             logger.warning("Failed to fetch TrueNAS disk inventory; showing device IDs only")
+        if disk_lookup:
+            # /disk may return pool as null — enrich from /pool topology
+            await _enrich_disk_pools(disk_lookup)
 
     # Step 3: Apply pool filter in Python (not PromQL — the metric may lack a pool label)
     pool_device_ids: set[str] | None = None
@@ -508,7 +542,10 @@ async def hdd_power_status(
         disk_entry = disk_lookup.get(hex_key)
         disk_name = _format_disk_name(disk_entry, device_id)
         state_label = _format_power_state(power_value)
-        pool_str = f" [pool: {series_pool}]" if series_pool else ""
+        # Prefer TrueNAS pool (enriched from /pool topology) over Prometheus label
+        entry_pool = disk_entry.get("pool", "") if disk_entry else ""
+        pool_display = entry_pool or series_pool
+        pool_str = f" [pool: {pool_display}]" if pool_display else ""
 
         line = f"  {disk_name} — {state_label}{pool_str}"
         if power_int in _STANDBY_STATES:
@@ -553,7 +590,9 @@ async def hdd_power_status(
             hex_key = _extract_hex(device_id)
             disk_entry = disk_lookup.get(hex_key)
             disk_name = _format_disk_name(disk_entry, device_id)
-            dev_pool = pool_by_device.get(device_id, "")
+            # Prefer TrueNAS pool over Prometheus label
+            entry_pool = disk_entry.get("pool", "") if disk_entry else ""
+            dev_pool = entry_pool or pool_by_device.get(device_id, "")
             pool_str = f" [pool: {dev_pool}]" if dev_pool else ""
             lines.append(
                 f"  {disk_name}{pool_str} — {stats.change_count} change(s), "

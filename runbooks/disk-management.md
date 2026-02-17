@@ -140,7 +140,8 @@ tool. It accepts optional `duration` (default `"24h"`, e.g. `"12h"`, `"3d"`, `"1
 `pool` filter (e.g. `"tank"`, `"backup"`). It handles all the complexity automatically:
 
 - Queries current power state from Prometheus
-- Cross-references device IDs with TrueNAS disk inventory for human-readable names and pool filtering
+- Cross-references device IDs with TrueNAS disk inventory for human-readable names
+- Enriches disk entries with pool assignments from `/pool` topology (since `/disk` may return pool as null)
 - Reports change counts and time-in-state percentages for the requested duration
 - Uses progressive `changes()` widening (1h→6h→24h→7d) to find recent transitions
 - Pinpoints exact transition timestamps via range queries
