@@ -123,11 +123,9 @@ volume:
       - "8000:8000"
     env_file: .env
     restart: unless-stopped
-    environment:
-      - CONVERSATION_HISTORY_DIR=/app/conversations
     volumes:
       - chroma_data:/app/.chroma_db
-      - ${CONVERSATION_HISTORY_DIR:-./conversations}:/app/conversations
+      - ${CONVERSATION_HISTORY_HOST_DIR:-./conversations}:/app/conversations
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
       interval: 30s
@@ -191,7 +189,7 @@ Create a `.env` file on the deployment host. See `.env.example` for the full lis
 | `PBS_API_TOKEN`       | PBS API auth                |
 | `LOKI_URL`            | Loki log tools (3 tools)    |
 | `EXTRA_DOCS_DIRS`     | Additional RAG doc directories (comma-separated absolute paths) |
-| `CONVERSATION_HISTORY_DIR` | Host path for conversation JSON files (bind-mounted to `/app/conversations` in Docker) |
+| `CONVERSATION_HISTORY_HOST_DIR` | Host path for conversation JSON files (bind-mounted to `/app/conversations` in Docker) |
 
 All URLs must point to addresses reachable from inside the Docker container — see [Networking](#networking).
 
@@ -449,9 +447,9 @@ The agent maintains conversation context within a session so users can have natu
 Implementation uses LangChain's built-in message history with a session-scoped conversation buffer. In-memory history
 is lost on process restart.
 
-When `CONVERSATION_HISTORY_DIR` is set, the full conversation (including all tool calls and responses) is persisted as
-JSON files for debugging and agent improvement. See [docs/architecture.md](docs/architecture.md#conversation-history-persistence)
-for details.
+The full conversation (including all tool calls and responses) is persisted as JSON files to `/app/conversations`
+inside the container. In Docker, `CONVERSATION_HISTORY_HOST_DIR` controls the host-side bind mount path. See
+[docs/architecture.md](docs/architecture.md#conversation-history-persistence) for details.
 
 ---
 

@@ -52,8 +52,8 @@ The LLM composes a final answer from tool results and its knowledge.
 
 ### 6. Conversation Persistence
 
-After `ainvoke()` returns, if `CONVERSATION_HISTORY_DIR` is configured, the full message list (including tool calls
-and tool responses) is serialized to a JSON file:
+After `ainvoke()` returns, the full message list (including tool calls and tool responses) is serialized to a JSON
+file in `/app/conversations`:
 
 ```
 result = agent.ainvoke(...)

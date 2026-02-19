@@ -20,11 +20,10 @@ services:
     env_file: .env
     environment:
       - ANONYMIZED_TELEMETRY=False
-      - CONVERSATION_HISTORY_DIR=/app/conversations
     restart: unless-stopped
     volumes:
       - chroma_data:/app/.chroma_db
-      - ${CONVERSATION_HISTORY_DIR:-./conversations}:/app/conversations
+      - ${CONVERSATION_HISTORY_HOST_DIR:-./conversations}:/app/conversations
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
       interval: 30s

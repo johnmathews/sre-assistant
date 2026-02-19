@@ -261,19 +261,18 @@ strings, which disables their tools.
 
 ### Conversation History Persistence
 
-When `CONVERSATION_HISTORY_DIR` is set, the full conversation for each session — including all tool calls, tool
-responses, and intermediate messages — is saved as a JSON file after each agent invocation. This is designed for
-debugging and improving the agent, not for runtime use.
+The full conversation for each session — including all tool calls, tool responses, and intermediate messages — is
+saved as a JSON file to `/app/conversations` after each agent invocation. This is designed for debugging and improving
+the agent, not for runtime use.
 
-- **File format:** `{session_id}.json` with metadata (timestamps, turn count, model) and the full LangChain message
-  list serialized via `messages_to_dict()`
+- **File format:** `{datetime}_{session_id}.json` with metadata (timestamps, turn count, model) and the full LangChain
+  message list serialized via `messages_to_dict()`
 - **Atomic writes:** uses `tempfile.mkstemp()` + `os.replace()` to avoid partial files on crash
 - **Error-safe:** all errors are logged and swallowed — conversation persistence never crashes a request
 - **Preserves `created_at`:** on updates to an existing session file, the original creation timestamp is retained
 
-In Docker, `CONVERSATION_HISTORY_DIR` from the host `.env` is bind-mounted to `/app/conversations` inside the
-container. The `CONVERSATION_HISTORY_DIR` env var is overridden to `/app/conversations` in the container's
-`environment:` block, decoupling the container path from the host filesystem layout.
+In Docker, `CONVERSATION_HISTORY_HOST_DIR` from the host `.env` is bind-mounted to `/app/conversations` inside the
+container. The app always writes to `/app/conversations` — the host path is purely a deployment concern.
 
 ## Deployment Plan
 
@@ -310,7 +309,7 @@ docker-compose.yml
   +-- sre-api (FastAPI backend)
   |     CMD: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
   |     Port: 8000
-  |     Volumes: chroma_data:/app/.chroma_db, ${CONVERSATION_HISTORY_DIR}:/app/conversations
+  |     Volumes: chroma_data:/app/.chroma_db, ${CONVERSATION_HISTORY_HOST_DIR}:/app/conversations
   |     restart: unless-stopped
   |
   +-- sre-ui (Streamlit frontend)

@@ -43,8 +43,9 @@ class Settings(BaseSettings):
     # Extra document directories for RAG ingestion (comma-separated absolute paths)
     extra_docs_dirs: str = ""
 
-    # Conversation history persistence (optional — empty = disabled)
-    conversation_history_dir: str = ""
+    # Conversation history — always writes to /app/conversations in Docker.
+    # Host path is configured via bind mount in docker-compose, not here.
+    conversation_history_dir: str = "/app/conversations"
 
     # Proxmox Backup Server API (optional — empty string means not configured)
     pbs_url: str = ""
