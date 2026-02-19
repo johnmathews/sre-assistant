@@ -1,6 +1,6 @@
 # Loki Logging Pipeline
 
-## Overview
+## Purpose
 
 The homelab uses **Grafana Alloy** to collect logs from Docker containers and select systemd journal units, shipping
 them to a central **Loki** instance for storage and querying.

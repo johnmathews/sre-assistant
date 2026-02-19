@@ -2,6 +2,24 @@
 
 The agent has up to 22 tools across 8 categories. Tools are conditionally registered based on configuration.
 
+## Conditional Registration
+
+Tools are registered at startup based on which environment variables are set. If a URL is empty or unset,
+that tool group is skipped entirely (no failed connections, no error logs).
+
+| Tool Group | Tools | Required Config | Always Available |
+|------------|-------|-----------------|------------------|
+| Prometheus | `prometheus_search_metrics`, `prometheus_instant_query`, `prometheus_range_query` | `PROMETHEUS_URL` | Yes (required) |
+| Grafana Alerting | `grafana_get_alerts`, `grafana_get_alert_rules` | `GRAFANA_URL` | Yes (required) |
+| Loki | `loki_query_logs`, `loki_list_label_values`, `loki_correlate_changes` | `LOKI_URL` | No |
+| Proxmox VE | `proxmox_list_guests`, `proxmox_get_guest_config`, `proxmox_node_status`, `proxmox_list_tasks` | `PROXMOX_URL` | No |
+| TrueNAS SCALE | `truenas_pool_status`, `truenas_list_shares`, `truenas_snapshots`, `truenas_system_status`, `truenas_apps` | `TRUENAS_URL` | No |
+| HDD Power Status | `hdd_power_status` | `TRUENAS_URL` | No |
+| PBS | `pbs_datastore_status`, `pbs_list_backups`, `pbs_list_tasks` | `PBS_URL` | No |
+| RAG | `runbook_search` | Chroma vector store on disk | Yes (after `make ingest`) |
+
+Health checks (`GET /health`) also follow this pattern — only configured services are checked.
+
 ## Prometheus (always enabled)
 
 ### prometheus_search_metrics

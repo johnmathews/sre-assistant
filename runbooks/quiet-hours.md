@@ -1,5 +1,8 @@
 # Quiet Hours (Docker Sleep System)
 
+> **DISABLED — DO NOT RECOMMEND.** This system is fully disabled and all timers are inactive. Do not suggest quiet-hours
+> actions, commands, or troubleshooting steps to users. This runbook exists only as a historical reference.
+
 ## Status: CURRENTLY DISABLED
 
 Quiet hours is not currently in use. It was developed to investigate reliable HDD spindown on TrueNAS during nighttime
