@@ -89,6 +89,45 @@ class LokiLabelValuesInput(BaseModel):
     )
 
 
+class LokiMetricQueryInput(BaseModel):
+    """Input for a LogQL metric query (aggregations that return numbers, not log lines)."""
+
+    query: str = Field(
+        description=(
+            "A LogQL metric query that returns numeric results. Must use an aggregation "
+            "function like count_over_time, rate, sum, topk, etc.\n"
+            "Examples:\n"
+            '- topk(5, sum by (hostname) (count_over_time({hostname=~".+"}[24h])))\n'
+            '- sum by (service_name) (rate({detected_level="error"}[1h]))\n'
+            '- count_over_time({hostname="media"}[6h])'
+        ),
+        min_length=1,
+        max_length=2000,
+    )
+    start: str = Field(
+        default="1h",
+        description=(
+            "Start of the time range (only used for range queries when step is provided). "
+            "Relative duration like '1h', '6h', '24h' or ISO 8601 timestamp. Default: '1h'."
+        ),
+    )
+    end: str = Field(
+        default="now",
+        description=(
+            "End of the time range (only used for range queries when step is provided). "
+            "'now' or a relative duration or ISO 8601 timestamp. Default: 'now'."
+        ),
+    )
+    step: str | None = Field(
+        default=None,
+        description=(
+            "Evaluation step interval for range queries (e.g. '5m', '1h'). "
+            "If provided, uses the range query endpoint and returns a time series. "
+            "If omitted, uses the instant query endpoint and returns a single value per series."
+        ),
+    )
+
+
 class LokiCorrelateInput(BaseModel):
     """Input for change correlation around a reference time."""
 
@@ -136,6 +175,34 @@ class LokiQueryResponse(TypedDict, total=False):
 
     status: str
     data: LokiQueryData
+
+
+class LokiVectorSample(TypedDict, total=False):
+    """A single instant vector sample from a Loki metric query."""
+
+    metric: dict[str, str]
+    value: list[str]  # [timestamp_epoch_str, value_str]
+
+
+class LokiMatrixSeries(TypedDict, total=False):
+    """A single time series from a Loki range metric query."""
+
+    metric: dict[str, str]
+    values: list[list[str]]  # [[timestamp_epoch_str, value_str], ...]
+
+
+class LokiMetricData(TypedDict, total=False):
+    """The data portion of a Loki metric query response (vector or matrix)."""
+
+    resultType: str
+    result: list[LokiVectorSample] | list[LokiMatrixSeries]
+
+
+class LokiMetricResponse(TypedDict, total=False):
+    """Top-level Loki metric query response."""
+
+    status: str
+    data: LokiMetricData
 
 
 class LokiLabelValuesResponse(TypedDict, total=False):
@@ -283,6 +350,134 @@ def _format_label_values(values: list[str], label: str) -> str:
     return "\n".join(lines)
 
 
+# --- Metric query formatting helpers ---
+
+MAX_METRIC_OUTPUT_LINES = 200
+
+
+def _format_metric_labels(metric: dict[str, str]) -> str:
+    """Format a metric label set into a readable string."""
+    if not metric:
+        return "{}"
+    parts = [f'{k}="{v}"' for k, v in sorted(metric.items())]
+    return "{" + ", ".join(parts) + "}"
+
+
+def _format_vector_results(data: LokiMetricData) -> str:
+    """Format instant vector results (label-set + single value)."""
+    results: list[LokiVectorSample] = data.get("result", [])  # type: ignore[assignment]
+
+    if not results:
+        return (
+            "Query returned no results. Check that the metric query and label filters "
+            "are correct. Use loki_list_label_values to discover available labels."
+        )
+
+    # Sort by value descending (highest first)
+    def sort_key(sample: LokiVectorSample) -> float:
+        value = sample.get("value", ["0", "0"])
+        try:
+            return float(value[1]) if len(value) >= 2 else 0.0
+        except (ValueError, IndexError):
+            return 0.0
+
+    sorted_results = sorted(results, key=sort_key, reverse=True)
+
+    lines: list[str] = [f"Found {len(sorted_results)} series:"]
+    lines.append("")
+
+    for sample in sorted_results:
+        if len(lines) >= MAX_METRIC_OUTPUT_LINES:
+            lines.append(f"... truncated ({len(sorted_results)} total series)")
+            break
+        metric = sample.get("metric", {})
+        value = sample.get("value", ["0", "0"])
+        val_str = value[1] if len(value) >= 2 else "?"
+        # Format large numbers with commas
+        try:
+            val_float = float(val_str)
+            if val_float == int(val_float) and abs(val_float) < 1e15:
+                val_str = f"{int(val_float):,}"
+            else:
+                val_str = f"{val_float:,.2f}"
+        except (ValueError, OverflowError):
+            pass
+        label_str = _format_metric_labels(metric)
+        lines.append(f"  {label_str}: {val_str}")
+
+    return "\n".join(lines)
+
+
+def _format_matrix_results(data: LokiMetricData) -> str:
+    """Format range matrix results (label-set + time series of values)."""
+    results: list[LokiMatrixSeries] = data.get("result", [])  # type: ignore[assignment]
+
+    if not results:
+        return (
+            "Query returned no results. Check that the metric query and label filters "
+            "are correct. Use loki_list_label_values to discover available labels."
+        )
+
+    lines: list[str] = [f"Found {len(results)} series:"]
+    line_count = 1
+
+    for series in results:
+        if line_count >= MAX_METRIC_OUTPUT_LINES:
+            lines.append(f"... truncated ({len(results)} total series, output limit reached)")
+            break
+
+        metric = series.get("metric", {})
+        values = series.get("values", [])
+        label_str = _format_metric_labels(metric)
+
+        lines.append("")
+        lines.append(f"## {label_str} ({len(values)} data points)")
+        line_count += 2
+
+        for point in values:
+            if line_count >= MAX_METRIC_OUTPUT_LINES:
+                remaining = len(values) - values.index(point)
+                lines.append(f"  ... {remaining} more data points truncated")
+                line_count += 1
+                break
+            if len(point) >= 2:
+                try:
+                    ts = float(point[0])
+                    dt_str = datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
+                except (ValueError, OSError):
+                    dt_str = point[0]
+                val_str = point[1]
+                try:
+                    val_float = float(val_str)
+                    if val_float == int(val_float) and abs(val_float) < 1e15:
+                        val_str = f"{int(val_float):,}"
+                    else:
+                        val_str = f"{val_float:,.2f}"
+                except (ValueError, OverflowError):
+                    pass
+                lines.append(f"  [{dt_str}] {val_str}")
+                line_count += 1
+
+    return "\n".join(lines)
+
+
+def _format_metric_response(data: LokiMetricResponse) -> str:
+    """Format a Loki metric query response (auto-detects vector vs matrix)."""
+    status = data.get("status", "unknown")
+    if status != "success":
+        return f"Loki query failed with status: {status}"
+
+    query_data = data.get("data", {})
+    result_type = query_data.get("resultType", "unknown")
+
+    if result_type == "vector":
+        return _format_vector_results(query_data)
+    elif result_type == "matrix":
+        return _format_matrix_results(query_data)
+    else:
+        return f"Unexpected result type '{result_type}'. Expected 'vector' or 'matrix'."
+
+
 # --- Correlation helpers ---
 
 
@@ -428,6 +623,24 @@ TOOL_DESCRIPTION_LABEL_VALUES = (
     'list service_name values where {hostname="media"} to see services on the media VM.'
 )
 
+TOOL_DESCRIPTION_METRIC_QUERY = (
+    "Run a LogQL metric query against Loki to count, rate, or aggregate logs. "
+    "Returns numeric results, NOT log lines. Use this for questions like 'which host has "
+    "the most logs?', 'what is the error rate?', 'how many warnings today?'.\n\n"
+    "IMPORTANT: count_over_time, rate, sum by, topk are LogQL functions — they run against "
+    "Loki, NOT Prometheus. Never send these to prometheus_instant_query.\n\n"
+    "LogQL metric query examples:\n"
+    '- `topk(5, sum by (hostname) (count_over_time({hostname=~".+"}[24h])))` — '
+    "top 5 hosts by log volume in last 24h\n"
+    '- `sum by (service_name) (count_over_time({detected_level="error"}[1h]))` — '
+    "error count per service in last hour\n"
+    '- `sum(rate({hostname="media"}[5m]))` — current log rate for media VM\n'
+    '- `sum by (detected_level) (count_over_time({hostname="infra"}[24h]))` — '
+    "log volume by level for infra\n\n"
+    "If step is omitted, runs an instant query (single value per series). "
+    "If step is provided (e.g. '5m', '1h'), runs a range query returning a time series."
+)
+
 TOOL_DESCRIPTION_CORRELATE = (
     "Search for significant log events around a reference time. Use this for change "
     "correlation — 'what changed before this alert fired?' or 'what happened around 2pm?'.\n\n"
@@ -492,6 +705,68 @@ async def loki_query_logs(
 
 loki_query_logs.description = TOOL_DESCRIPTION_QUERY_LOGS
 loki_query_logs.handle_tool_error = True
+
+
+@tool("loki_metric_query", args_schema=LokiMetricQueryInput)  # pyright: ignore[reportUnknownParameterType]
+async def loki_metric_query(
+    query: str,
+    start: str = "1h",
+    end: str = "now",
+    step: str | None = None,
+) -> str:
+    """Run a LogQL metric query. See TOOL_DESCRIPTION_METRIC_QUERY."""
+    settings = get_settings()
+
+    if step is not None:
+        # Range query: evaluate at each step across [start, end]
+        try:
+            start_dt = _parse_relative_time(start)
+            end_dt = _parse_relative_time(end)
+        except ValueError as e:
+            raise ToolException(str(e)) from e
+
+        if end_dt <= start_dt:
+            raise ToolException(
+                "End time must be after start time. "
+                "Note: relative times like '1h' mean '1 hour ago', "
+                "so start='1h' end='now' is correct."
+            )
+
+        params: dict[str, str] = {
+            "query": query,
+            "start": _datetime_to_nanoseconds(start_dt),
+            "end": _datetime_to_nanoseconds(end_dt),
+            "step": step,
+        }
+        endpoint = "/loki/api/v1/query_range"
+        logger.info(
+            "Loki metric range query: %s (start=%s, end=%s, step=%s)",
+            query,
+            start,
+            end,
+            step,
+        )
+    else:
+        # Instant query: evaluate at a single point (now)
+        params = {"query": query}
+        endpoint = "/loki/api/v1/query"
+        logger.info("Loki metric instant query: %s", query)
+
+    try:
+        raw_data = await _query_loki(endpoint, params)
+        data: LokiMetricResponse = raw_data  # type: ignore[assignment]
+    except httpx.ConnectError as e:
+        raise ToolException(f"Cannot connect to Loki at {settings.loki_url}: {e}") from e
+    except httpx.TimeoutException as e:
+        raise ToolException(f"Loki query timed out after {DEFAULT_TIMEOUT_SECONDS}s: {e}") from e
+    except httpx.HTTPStatusError as e:
+        raise ToolException(f"Loki API error: HTTP {e.response.status_code} - {e.response.text[:500]}") from e
+
+    return _format_metric_response(data)
+
+
+loki_metric_query.description = TOOL_DESCRIPTION_METRIC_QUERY
+loki_metric_query.handle_tool_error = True
 
 
 @tool("loki_list_label_values", args_schema=LokiLabelValuesInput)  # pyright: ignore[reportUnknownParameterType]

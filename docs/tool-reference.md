@@ -11,7 +11,7 @@ that tool group is skipped entirely (no failed connections, no error logs).
 |------------|-------|-----------------|------------------|
 | Prometheus | `prometheus_search_metrics`, `prometheus_instant_query`, `prometheus_range_query` | `PROMETHEUS_URL` | Yes (required) |
 | Grafana Alerting | `grafana_get_alerts`, `grafana_get_alert_rules` | `GRAFANA_URL` | Yes (required) |
-| Loki | `loki_query_logs`, `loki_list_label_values`, `loki_correlate_changes` | `LOKI_URL` | No |
+| Loki | `loki_query_logs`, `loki_metric_query`, `loki_list_label_values`, `loki_correlate_changes` | `LOKI_URL` | No |
 | Proxmox VE | `proxmox_list_guests`, `proxmox_get_guest_config`, `proxmox_node_status`, `proxmox_list_tasks` | `PROXMOX_URL` | No |
 | TrueNAS SCALE | `truenas_pool_status`, `truenas_list_shares`, `truenas_snapshots`, `truenas_system_status`, `truenas_apps` | `TRUENAS_URL` | No |
 | HDD Power Status | `hdd_power_status` | `TRUENAS_URL` | No |
@@ -73,6 +73,15 @@ Query Loki for log lines using LogQL.
 - **Input:** `query` (LogQL string), `start` (relative like "1h" or ISO timestamp, default "1h"), `end` (relative or ISO, default "now"), `limit` (int, default 100, max 1000), `direction` ("forward" or "backward", default "backward")
 - **Example questions:** "Show me recent logs from traefik", "What errors occurred on the media VM in the last 6 hours?"
 - **Returns:** Formatted log lines with timestamps, stream labels, and log text
+
+### loki_metric_query
+
+Run a LogQL metric query against Loki to count, rate, or aggregate logs. Returns numeric results, not log lines.
+
+- **Input:** `query` (LogQL metric query), `start` (relative or ISO, default "1h"), `end` (relative or ISO, default "now"), `step` (optional, e.g. "5m" — if provided, runs range query; if omitted, runs instant query)
+- **Example questions:** "Which host has the most logs today?", "What is the error rate per service?", "How many warnings in the last hour?"
+- **Returns:** For instant queries: series sorted by value descending. For range queries: time series per series with timestamps and values.
+- **Note:** `count_over_time`, `rate`, `sum by`, `topk` are LogQL functions that run against Loki — never send them to Prometheus tools.
 
 ### loki_list_label_values
 

@@ -14,7 +14,12 @@ from pydantic import SecretStr
 
 from src.agent.history import save_conversation
 from src.agent.tools.grafana_alerts import grafana_get_alert_rules, grafana_get_alerts
-from src.agent.tools.loki import loki_correlate_changes, loki_list_label_values, loki_query_logs
+from src.agent.tools.loki import (
+    loki_correlate_changes,
+    loki_list_label_values,
+    loki_metric_query,
+    loki_query_logs,
+)
 from src.agent.tools.pbs import pbs_datastore_status, pbs_list_backups, pbs_list_tasks
 from src.agent.tools.prometheus import (
     prometheus_instant_query,
@@ -92,6 +97,9 @@ prometheus_instant_query for disk_power_state — use this tool instead.
 
 **For logs** (application logs, errors, container lifecycle events):
 - `loki_query_logs` — query log lines using LogQL (general-purpose log search)
+- `loki_metric_query` — count, rate, or aggregate logs (e.g. log volume by host, error rate \
+by service). Uses LogQL metric queries like count_over_time, rate, sum by, topk. \
+**IMPORTANT**: these are Loki queries, NOT PromQL — never send them to prometheus_instant_query.
 - `loki_list_label_values` — discover available hostnames, services, containers, log levels
 - `loki_correlate_changes` — find significant events around a reference time (change correlation)
 
@@ -180,13 +188,22 @@ Logs are collected by Alloy from Docker containers and some systemd journal unit
 **When to use Loki tools vs Prometheus:**
 - **Loki** = text logs, error messages, application output, container lifecycle events
 - **Prometheus** = numeric metrics, rates, aggregations, time-series trends
+- **IMPORTANT**: LogQL metric functions (`count_over_time`, `rate`, `sum by`, `topk`) are \
+Loki queries — use `loki_metric_query`, NEVER `prometheus_instant_query`
 
-**LogQL tips:**
+**LogQL tips (for loki_query_logs — returns log lines):**
 - Always include at least one label filter: `{hostname="media"}` not `{}`
 - Use `|=` for substring match: `{service_name="traefik"} |= "502"`
 - Use `|~` for regex: `{hostname="infra"} |~ "(?i)error"`
 - Use `detected_level` to filter by severity: `{detected_level=~"error|warn"}`
 - Start with `loki_list_label_values` to discover what services/hosts exist before querying
+
+**LogQL metric queries (for loki_metric_query — returns numbers):**
+- `topk(5, sum by (hostname) (count_over_time({hostname=~".+"}[24h])))` — top 5 hosts by log volume
+- `sum by (service_name) (count_over_time({detected_level="error"}[1h]))` — errors per service
+- `sum(rate({hostname="media"}[5m]))` — current log rate for a host
+- `sum by (detected_level) (count_over_time({hostname="infra"}[24h]))` — log breakdown by level
+- The `[duration]` inside the query is the lookback window; no step needed for instant results
 
 **When to use `loki_correlate_changes`:**
 - "What changed before this alert?" — pass the alert's firing time as reference_time
@@ -258,6 +275,7 @@ def _get_tools() -> list[BaseTool]:
         tools.extend(
             [
                 loki_query_logs,
+                loki_metric_query,
                 loki_list_label_values,
                 loki_correlate_changes,
             ]

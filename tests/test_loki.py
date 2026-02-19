@@ -5,13 +5,21 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from src.agent.tools.loki import (
+    LokiMatrixSeries,
+    LokiMetricData,
+    LokiMetricResponse,
     LokiQueryResponse,
     LokiStreamValues,
+    LokiVectorSample,
     _build_timeline,
     _datetime_to_nanoseconds,
     _extract_events_from_response,
     _format_label_values,
     _format_log_lines,
+    _format_matrix_results,
+    _format_metric_labels,
+    _format_metric_response,
+    _format_vector_results,
     _parse_relative_time,
     _TimelineEvent,
 )
@@ -296,3 +304,148 @@ class TestBuildTimeline:
         output = _build_timeline(events)
         assert "infra/traefik: 2 events" in output
         assert "media/jellyfin: 1 events" in output
+
+
+class TestFormatMetricLabels:
+    def test_empty_labels(self) -> None:
+        assert _format_metric_labels({}) == "{}"
+
+    def test_single_label(self) -> None:
+        assert _format_metric_labels({"hostname": "media"}) == '{hostname="media"}'
+
+    def test_multiple_labels_sorted(self) -> None:
+        result = _format_metric_labels({"service_name": "traefik", "hostname": "infra"})
+        assert result == '{hostname="infra", service_name="traefik"}'
+
+
+class TestFormatVectorResults:
+    def test_empty_results(self) -> None:
+        data: LokiMetricData = {"resultType": "vector", "result": []}
+        output = _format_vector_results(data)
+        assert "no results" in output.lower()
+
+    def test_single_series(self) -> None:
+        sample: LokiVectorSample = {
+            "metric": {"hostname": "media"},
+            "value": ["1700000000", "12345"],
+        }
+        data: LokiMetricData = {"resultType": "vector", "result": [sample]}  # type: ignore[typeddict-item]
+        output = _format_vector_results(data)
+        assert "Found 1 series" in output
+        assert "media" in output
+        assert "12,345" in output
+
+    def test_sorted_descending_by_value(self) -> None:
+        samples: list[LokiVectorSample] = [
+            {"metric": {"hostname": "infra"}, "value": ["1700000000", "100"]},
+            {"metric": {"hostname": "media"}, "value": ["1700000000", "5000"]},
+            {"metric": {"hostname": "pve"}, "value": ["1700000000", "2000"]},
+        ]
+        data: LokiMetricData = {"resultType": "vector", "result": samples}  # type: ignore[typeddict-item]
+        output = _format_vector_results(data)
+        lines = [line for line in output.split("\n") if line.strip().startswith("{")]
+        # media (5000) should be first, then pve (2000), then infra (100)
+        assert "media" in lines[0]
+        assert "pve" in lines[1]
+        assert "infra" in lines[2]
+
+    def test_formats_large_numbers_with_commas(self) -> None:
+        sample: LokiVectorSample = {
+            "metric": {"hostname": "media"},
+            "value": ["1700000000", "1234567"],
+        }
+        data: LokiMetricData = {"resultType": "vector", "result": [sample]}  # type: ignore[typeddict-item]
+        output = _format_vector_results(data)
+        assert "1,234,567" in output
+
+    def test_formats_float_values(self) -> None:
+        sample: LokiVectorSample = {
+            "metric": {"hostname": "media"},
+            "value": ["1700000000", "3.14159"],
+        }
+        data: LokiMetricData = {"resultType": "vector", "result": [sample]}  # type: ignore[typeddict-item]
+        output = _format_vector_results(data)
+        assert "3.14" in output
+
+    def test_truncates_many_series(self) -> None:
+        samples: list[LokiVectorSample] = [
+            {"metric": {"hostname": f"host-{i}"}, "value": ["1700000000", str(i)]} for i in range(250)
+        ]
+        data: LokiMetricData = {"resultType": "vector", "result": samples}  # type: ignore[typeddict-item]
+        output = _format_vector_results(data)
+        assert "truncated" in output
+        assert "250 total series" in output
+
+
+class TestFormatMatrixResults:
+    def test_empty_results(self) -> None:
+        data: LokiMetricData = {"resultType": "matrix", "result": []}
+        output = _format_matrix_results(data)
+        assert "no results" in output.lower()
+
+    def test_single_series_with_datapoints(self) -> None:
+        series: LokiMatrixSeries = {
+            "metric": {"hostname": "media"},
+            "values": [
+                ["1700000000", "100"],
+                ["1700000300", "150"],
+                ["1700000600", "200"],
+            ],
+        }
+        data: LokiMetricData = {"resultType": "matrix", "result": [series]}  # type: ignore[typeddict-item]
+        output = _format_matrix_results(data)
+        assert "Found 1 series" in output
+        assert "3 data points" in output
+        assert "media" in output
+        assert "100" in output
+        assert "200" in output
+
+    def test_truncates_many_datapoints(self) -> None:
+        values = [[str(1700000000 + i * 60), str(i)] for i in range(300)]
+        series: LokiMatrixSeries = {
+            "metric": {"hostname": "media"},
+            "values": values,
+        }
+        data: LokiMetricData = {"resultType": "matrix", "result": [series]}  # type: ignore[typeddict-item]
+        output = _format_matrix_results(data)
+        assert "truncated" in output
+
+
+class TestFormatMetricResponse:
+    def test_error_status(self) -> None:
+        data: LokiMetricResponse = {"status": "error"}
+        output = _format_metric_response(data)
+        assert "failed" in output.lower()
+
+    def test_vector_dispatch(self) -> None:
+        sample: LokiVectorSample = {
+            "metric": {"hostname": "media"},
+            "value": ["1700000000", "42"],
+        }
+        data: LokiMetricResponse = {
+            "status": "success",
+            "data": {"resultType": "vector", "result": [sample]},  # type: ignore[typeddict-item]
+        }
+        output = _format_metric_response(data)
+        assert "Found 1 series" in output
+        assert "42" in output
+
+    def test_matrix_dispatch(self) -> None:
+        series: LokiMatrixSeries = {
+            "metric": {"hostname": "infra"},
+            "values": [["1700000000", "10"]],
+        }
+        data: LokiMetricResponse = {
+            "status": "success",
+            "data": {"resultType": "matrix", "result": [series]},  # type: ignore[typeddict-item]
+        }
+        output = _format_metric_response(data)
+        assert "Found 1 series" in output
+
+    def test_unknown_result_type(self) -> None:
+        data: LokiMetricResponse = {
+            "status": "success",
+            "data": {"resultType": "scalar", "result": []},
+        }
+        output = _format_metric_response(data)
+        assert "Unexpected result type" in output

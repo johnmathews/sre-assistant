@@ -187,7 +187,7 @@ Create a `.env` file on the deployment host. See `.env.example` for the full lis
 | `PROXMOX_API_TOKEN`   | PVE API auth                |
 | `PBS_URL`             | PBS backup tools (3 tools)  |
 | `PBS_API_TOKEN`       | PBS API auth                |
-| `LOKI_URL`            | Loki log tools (3 tools)    |
+| `LOKI_URL`            | Loki log tools (4 tools)    |
 | `EXTRA_DOCS_DIRS`     | Additional RAG doc directories (comma-separated absolute paths) |
 | `CONVERSATION_HISTORY_HOST_DIR` | Host path for conversation JSON files (bind-mounted to `/app/conversations` in Docker) |
 
@@ -353,7 +353,7 @@ to use based on the question.
 
 ## Current Capabilities
 
-The assistant has **up to 22 tools** across 8 categories, depending on which integrations are configured:
+The assistant has **up to 23 tools** across 8 categories, depending on which integrations are configured:
 
 **Always available (6 tools):**
 - Prometheus — metric search, instant queries, range queries (3 tools)
@@ -365,7 +365,7 @@ The assistant has **up to 22 tools** across 8 categories, depending on which int
 - HDD Power Status — power state summary with configurable duration and pool filter (1 tool, requires `TRUENAS_URL`)
 - Proxmox VE — guest listing, guest config, node status, task history (4 tools, requires `PROXMOX_URL`)
 - PBS — datastore status, backup groups, task history (3 tools, requires `PBS_URL`)
-- Loki — log queries, label discovery, change correlation timelines (3 tools, requires `LOKI_URL`)
+- Loki — log queries, log metric aggregation, label discovery, change correlation timelines (4 tools, requires `LOKI_URL`)
 
 **Questions it can answer today:**
 - "Why is CPU high on the Jellyfin VM?"
@@ -376,6 +376,7 @@ The assistant has **up to 22 tools** across 8 categories, depending on which int
 - "What containers are running on the Proxmox node?"
 - "Is the tank pool healthy? How much space is left?"
 - "What apps are running on TrueNAS?"
+- "Which VM generates the most logs?"
 - "Are the HDDs spun down?"
 
 **Artifacts it can generate:**
@@ -578,9 +579,9 @@ project needs a portable offline demo.
 6. ~~**Documentation** — `runbooks/loki-logging.md` (Alloy pipeline, labels, LogQL reference), updated tool reference,
    updated readme build steps.~~
 
-**Phase 3 complete.** All build steps finished — the agent has 3 Loki tools (query logs, list label values, correlate
-changes), conditional registration when `LOKI_URL` is set, a health check, system prompt guidance for LogQL queries,
-and documentation.
+**Phase 3 complete.** All build steps finished — the agent has 4 Loki tools (query logs, metric query for
+aggregations, list label values, correlate changes), conditional registration when `LOKI_URL` is set, a health check,
+system prompt guidance for LogQL queries, and documentation.
 
 ### Phase 4: SLI/SLO Dashboard & Instrumentation
 
@@ -695,7 +696,7 @@ homelab-sre-assistant/
 │   │   │   ├── proxmox.py        # Proxmox VE tools (4, optional)
 │   │   │   ├── pbs.py            # PBS backup tools (3, optional)
 │   │   │   ├── truenas.py        # TrueNAS SCALE tools (5, optional)
-│   │   │   └── loki.py           # Loki log query tools (3, optional)
+│   │   │   └── loki.py           # Loki log query tools (4, optional)
 │   │   └── retrieval/
 │   ├── observability/
 │   │   ├── metrics.py            # Prometheus metric definitions (10 metrics)
@@ -723,7 +724,7 @@ homelab-sre-assistant/
 │   └── install-hooks.sh          # Install git pre-push hook
 ├── dashboards/
 │   └── sre-assistant-sli.json    # Grafana SLI/SLO dashboard
-├── tests/                        # Unit + integration tests (473 passing)
+├── tests/                        # Unit + integration tests (499 passing)
 ├── docs/                         # Design documentation
 │   ├── architecture.md           # System overview, data flow, deployment
 │   ├── tool-reference.md         # All tools with inputs and examples

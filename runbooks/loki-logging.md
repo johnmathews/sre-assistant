@@ -97,6 +97,33 @@ level names (e.g. WARNING vs warn) — Alloy maps them to the canonical set abov
 {detected_level=~"warn|error|fatal"}
 ```
 
+### Metric Queries (Aggregations)
+
+LogQL supports metric queries that return numbers instead of log lines. These use functions like `count_over_time`,
+`rate`, `sum by`, and `topk`. They are **Loki queries, not PromQL** — run them via `loki_metric_query`, never via
+`prometheus_instant_query`.
+
+```logql
+# Top 5 hosts by log volume in the last 24 hours
+topk(5, sum by (hostname) (count_over_time({hostname=~".+"}[24h])))
+
+# Error count per service in the last hour
+sum by (service_name) (count_over_time({detected_level="error"}[1h]))
+
+# Log rate for a specific host (logs per second)
+sum(rate({hostname="media"}[5m]))
+
+# Log volume breakdown by level for a host
+sum by (detected_level) (count_over_time({hostname="infra"}[24h]))
+
+# Warning + error rate over time (use with step for time series)
+sum by (hostname) (rate({detected_level=~"warn|error"}[5m]))
+```
+
+**Instant vs range:** If you need a single answer (e.g., "which host has the most logs?"), omit the `step` parameter
+for an instant query. If you need a time series (e.g., "how has error rate changed over the day?"), provide a `step`
+like `5m` or `1h`.
+
 ## Retention
 
 Loki retention is configured at the server level. Check the Loki configuration for current retention period settings.

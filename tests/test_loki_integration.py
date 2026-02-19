@@ -9,6 +9,7 @@ import respx
 from src.agent.tools.loki import (
     loki_correlate_changes,
     loki_list_label_values,
+    loki_metric_query,
     loki_query_logs,
 )
 
@@ -437,3 +438,203 @@ class TestLokiCorrelateChanges:
         )
         # Should find 1 event, not 2
         assert "1 significant events" in result
+
+
+# --- loki_metric_query ---
+
+
+@pytest.mark.integration
+class TestLokiMetricQuery:
+    @respx.mock
+    async def test_instant_query_vector(self) -> None:
+        """Instant query (no step) should hit /loki/api/v1/query and return vector results."""
+        respx.get("http://loki.test:3100/loki/api/v1/query").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {
+                        "resultType": "vector",
+                        "result": [
+                            {
+                                "metric": {"hostname": "media"},
+                                "value": ["1700000000", "45231"],
+                            },
+                            {
+                                "metric": {"hostname": "infra"},
+                                "value": ["1700000000", "12045"],
+                            },
+                        ],
+                    },
+                },
+            )
+        )
+
+        result = await loki_metric_query.ainvoke(
+            {"query": 'topk(5, sum by (hostname) (count_over_time({hostname=~".+"}[24h])))'}
+        )
+        assert "Found 2 series" in result
+        assert "media" in result
+        assert "infra" in result
+        # media has higher value, should appear first
+        media_pos = result.index("media")
+        infra_pos = result.index("infra")
+        assert media_pos < infra_pos
+
+    @respx.mock
+    async def test_instant_query_sends_correct_params(self) -> None:
+        route = respx.get("http://loki.test:3100/loki/api/v1/query").mock(
+            return_value=httpx.Response(
+                200,
+                json={"status": "success", "data": {"resultType": "vector", "result": []}},
+            )
+        )
+
+        await loki_metric_query.ainvoke({"query": 'sum(count_over_time({hostname="media"}[1h]))'})
+        assert route.called
+        params = route.calls.last.request.url.params
+        assert params["query"] == 'sum(count_over_time({hostname="media"}[1h]))'
+        # Should not have start/end/step for instant query
+        assert "start" not in params
+        assert "end" not in params
+        assert "step" not in params
+
+    @respx.mock
+    async def test_range_query_matrix(self) -> None:
+        """Range query (step provided) should hit /loki/api/v1/query_range and return matrix."""
+        respx.get("http://loki.test:3100/loki/api/v1/query_range").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {
+                        "resultType": "matrix",
+                        "result": [
+                            {
+                                "metric": {"hostname": "media"},
+                                "values": [
+                                    ["1700000000", "1000"],
+                                    ["1700003600", "1500"],
+                                    ["1700007200", "2000"],
+                                ],
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+
+        result = await loki_metric_query.ainvoke(
+            {
+                "query": 'sum by (hostname) (count_over_time({hostname="media"}[1h]))',
+                "start": "6h",
+                "end": "now",
+                "step": "1h",
+            }
+        )
+        assert "Found 1 series" in result
+        assert "3 data points" in result
+        assert "media" in result
+
+    @respx.mock
+    async def test_range_query_sends_correct_params(self) -> None:
+        route = respx.get("http://loki.test:3100/loki/api/v1/query_range").mock(
+            return_value=httpx.Response(
+                200,
+                json={"status": "success", "data": {"resultType": "matrix", "result": []}},
+            )
+        )
+
+        await loki_metric_query.ainvoke(
+            {
+                "query": 'sum(count_over_time({hostname="media"}[1h]))',
+                "start": "6h",
+                "end": "now",
+                "step": "1h",
+            }
+        )
+        assert route.called
+        params = route.calls.last.request.url.params
+        assert params["query"] == 'sum(count_over_time({hostname="media"}[1h]))'
+        assert params["step"] == "1h"
+        assert "start" in params
+        assert "end" in params
+
+    @respx.mock
+    async def test_empty_vector_result(self) -> None:
+        respx.get("http://loki.test:3100/loki/api/v1/query").mock(
+            return_value=httpx.Response(
+                200,
+                json={"status": "success", "data": {"resultType": "vector", "result": []}},
+            )
+        )
+
+        result = await loki_metric_query.ainvoke({"query": 'sum(count_over_time({hostname="nonexistent"}[1h]))'})
+        assert "no results" in result.lower()
+
+    @respx.mock
+    async def test_loki_unreachable(self) -> None:
+        respx.get("http://loki.test:3100/loki/api/v1/query").mock(side_effect=httpx.ConnectError("Connection refused"))
+
+        result = await loki_metric_query.ainvoke({"query": 'sum(count_over_time({hostname="media"}[1h]))'})
+        assert "Cannot connect" in result
+
+    @respx.mock
+    async def test_loki_timeout(self) -> None:
+        respx.get("http://loki.test:3100/loki/api/v1/query").mock(side_effect=httpx.ReadTimeout("Read timed out"))
+
+        result = await loki_metric_query.ainvoke({"query": 'sum(count_over_time({hostname="media"}[1h]))'})
+        assert "timed out" in result
+
+    @respx.mock
+    async def test_loki_http_error(self) -> None:
+        respx.get("http://loki.test:3100/loki/api/v1/query").mock(
+            return_value=httpx.Response(400, text="parse error: invalid LogQL")
+        )
+
+        result = await loki_metric_query.ainvoke({"query": "invalid query"})
+        assert "400" in result
+
+    async def test_range_query_end_before_start(self) -> None:
+        result = await loki_metric_query.ainvoke(
+            {
+                "query": 'sum(count_over_time({hostname="media"}[1h]))',
+                "start": "2024-06-15T14:00:00Z",
+                "end": "2024-06-15T13:00:00Z",
+                "step": "5m",
+            }
+        )
+        assert "End time must be after start time" in result
+
+    @respx.mock
+    async def test_vector_with_many_labels(self) -> None:
+        """Verify formatting works with complex label sets."""
+        respx.get("http://loki.test:3100/loki/api/v1/query").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {
+                        "resultType": "vector",
+                        "result": [
+                            {
+                                "metric": {
+                                    "hostname": "media",
+                                    "service_name": "traefik",
+                                    "detected_level": "error",
+                                },
+                                "value": ["1700000000", "500"],
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+
+        result = await loki_metric_query.ainvoke(
+            {"query": 'sum by (hostname, service_name, detected_level) (count_over_time({detected_level="error"}[1h]))'}
+        )
+        assert "media" in result
+        assert "traefik" in result
+        assert "error" in result
+        assert "500" in result

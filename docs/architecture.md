@@ -126,7 +126,7 @@ Three layers:
    transparently captures tool calls and LLM usage inside LangGraph's execution loop. A fresh instance is created per
    request (request-scoped `_start_times` dict) but writes to the shared module-level metric singletons. Key design
    choices:
-   - **No tool code changes** — the handler hooks into LangGraph's callback system, so all 22 current tools (and any
+   - **No tool code changes** — the handler hooks into LangGraph's callback system, so all 23 current tools (and any
      future tools) are automatically instrumented
    - **Works inside the agent loop** — LangGraph may call multiple tools in sequence before returning; the callback
      sees each individual call, unlike FastAPI middleware which only sees the outer request
