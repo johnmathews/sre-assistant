@@ -265,15 +265,26 @@ use `name="defconf"` (the bridge).
 - Traffic rate over time: use `prometheus_range_query` with \
 `abs(mktxp_interface_download_bytes_per_second{name="youfone.nl"})` and appropriate step
 - Per-interface comparison: query without `name` filter to see all interfaces at once
-- WiFi client count: `mktxp_wlan_registered_clients`
-- WiFi per-client data usage: `mktxp_wlan_clients_tx_bytes_total` (download), \
-`mktxp_wlan_clients_rx_bytes_total` (upload). These are counters — use `increase(...[7d])` for \
+- WiFi concurrent client count (per radio): `mktxp_wlan_registered_clients` — this is the number \
+of currently connected clients per radio band (2.4 GHz vs 5 GHz), NOT unique clients over time. \
+To count **unique clients that connected this week**, use: \
+`count(count by (mac_address) (mktxp_wlan_clients_tx_bytes_total))` — this counts distinct MAC \
+addresses that have per-client metrics.
+- WiFi per-client data usage: `mktxp_wlan_clients_tx_bytes_total` and \
+`mktxp_wlan_clients_rx_bytes_total`. These are counters — use `increase(...[7d])` for \
 time-bounded totals. Has `dhcp_name` and `mac_address` labels per client.
-- **CRITICAL — WiFi client rx/tx is from the AP's perspective:** \
-`tx` = AP transmitted TO the client = client's **download**. \
-`rx` = AP received FROM the client = client's **upload**. \
-When the user asks "which client downloaded the most", query `mktxp_wlan_clients_tx_bytes_total` \
-(not rx). Present results using the client perspective: "downloaded" = tx, "uploaded" = rx.
+- **CRITICAL — WiFi client tx/rx means client download/upload:** \
+`tx_bytes_total` = data the AP sent TO the client = client **downloaded** this data. \
+`rx_bytes_total` = data the AP received FROM the client = client **uploaded** this data. \
+When the user asks "which client downloaded the most", query `mktxp_wlan_clients_tx_bytes_total`. \
+When presenting results, ALWAYS use the client perspective: say "downloaded 5 GB" for tx data, \
+"uploaded 2 GB" for rx data. NEVER mention "AP perspective" or "from the router's point of view" \
+— users think in terms of their device, not the access point.
+- **Same device, multiple DHCP names:** A WiFi client may appear under different `dhcp_name` \
+values over time (e.g. "Ritsyas iPhone", "R-E-As-iPhone", "iPhone") but share the same \
+`mac_address`. When ranking data usage, aggregate by `mac_address` to avoid double-counting: \
+`topk(5, sum by (mac_address) (increase(mktxp_wlan_clients_tx_bytes_total[7d])))`. \
+Then look up the most recent `dhcp_name` for each MAC to label the results.
 - WiFi signal quality: `mktxp_wlan_clients_signal_strength` (dBm; -30=excellent, -67=good, -80=poor)
 - Active DHCP leases: `mktxp_dhcp_lease_active_count`
 - Connection tracking: `mktxp_ip_connections_total`
