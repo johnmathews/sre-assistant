@@ -6,6 +6,8 @@ services:
     build: .
     command: ["python", "-m", "scripts.ingest_runbooks"]
     env_file: .env
+    environment:
+      - ANONYMIZED_TELEMETRY=False
     volumes:
       - chroma_data:/app/.chroma_db
     profiles: ["setup"]
@@ -16,10 +18,13 @@ services:
     ports:
       - "${SRE_API_PORT:-8000}:8000"
     env_file: .env
+    environment:
+      - ANONYMIZED_TELEMETRY=False
+      - CONVERSATION_HISTORY_DIR=/app/conversations
     restart: unless-stopped
     volumes:
       - chroma_data:/app/.chroma_db
-      - conversation_data:/app/conversations
+      - ${CONVERSATION_HISTORY_DIR:-./conversations}:/app/conversations
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
       interval: 30s
@@ -41,4 +46,3 @@ services:
 
 volumes:
   chroma_data:
-  conversation_data:

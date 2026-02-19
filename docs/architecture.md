@@ -271,8 +271,9 @@ debugging and improving the agent, not for runtime use.
 - **Error-safe:** all errors are logged and swallowed — conversation persistence never crashes a request
 - **Preserves `created_at`:** on updates to an existing session file, the original creation timestamp is retained
 
-In Docker, the `conversation_data` volume is mounted at `/app/conversations`. Production Ansible compose bind-mounts
-`/srv/infra/sre-agent/conversations` to make the files accessible from the host.
+In Docker, `CONVERSATION_HISTORY_DIR` from the host `.env` is bind-mounted to `/app/conversations` inside the
+container. The `CONVERSATION_HISTORY_DIR` env var is overridden to `/app/conversations` in the container's
+`environment:` block, decoupling the container path from the host filesystem layout.
 
 ## Deployment Plan
 
@@ -309,7 +310,7 @@ docker-compose.yml
   +-- sre-api (FastAPI backend)
   |     CMD: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
   |     Port: 8000
-  |     Volumes: chroma_data:/app/.chroma_db, conversation_data:/app/conversations
+  |     Volumes: chroma_data:/app/.chroma_db, ${CONVERSATION_HISTORY_DIR}:/app/conversations
   |     restart: unless-stopped
   |
   +-- sre-ui (Streamlit frontend)
