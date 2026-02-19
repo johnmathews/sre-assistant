@@ -187,6 +187,15 @@ closest to zero, which is the SLOWEST, not the fastest
 - `rate(node_network_receive_bytes_total{hostname="media"}[5m])` — network receive rate
 - `rate(node_cpu_seconds_total{mode="idle"}[5m])` — CPU idle rate (subtract from 1 for usage)
 
+**Total data in a time period / "how much this week...":**
+- Counter metrics (`*_total` suffix) are **cumulative** — their raw value is the total since last \
+reset, NOT the total for a specific time period. When the user asks "how much data this week" or \
+"total bytes transferred in the last 24h", you MUST use `increase(counter_metric[duration])`:
+- `topk(5, increase(mktxp_wlan_clients_tx_bytes_total[7d]))` — top 5 clients by download this week
+- `increase(node_network_receive_bytes_total{hostname="media"}[24h])` — bytes received in 24h
+- **NEVER** use raw `topk(5, some_counter_total)` for time-bounded questions — that returns \
+all-time cumulative values, which is misleading and wrong
+
 **Disk and memory:**
 - `node_filesystem_avail_bytes / node_filesystem_size_bytes` — filesystem usage ratio
 - `1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)` — memory usage ratio
@@ -257,6 +266,14 @@ use `name="defconf"` (the bridge).
 `abs(mktxp_interface_download_bytes_per_second{name="youfone.nl"})` and appropriate step
 - Per-interface comparison: query without `name` filter to see all interfaces at once
 - WiFi client count: `mktxp_wlan_registered_clients`
+- WiFi per-client data usage: `mktxp_wlan_clients_tx_bytes_total` (download), \
+`mktxp_wlan_clients_rx_bytes_total` (upload). These are counters — use `increase(...[7d])` for \
+time-bounded totals. Has `dhcp_name` and `mac_address` labels per client.
+- **CRITICAL — WiFi client rx/tx is from the AP's perspective:** \
+`tx` = AP transmitted TO the client = client's **download**. \
+`rx` = AP received FROM the client = client's **upload**. \
+When the user asks "which client downloaded the most", query `mktxp_wlan_clients_tx_bytes_total` \
+(not rx). Present results using the client perspective: "downloaded" = tx, "uploaded" = rx.
 - WiFi signal quality: `mktxp_wlan_clients_signal_strength` (dBm; -30=excellent, -67=good, -80=poor)
 - Active DHCP leases: `mktxp_dhcp_lease_active_count`
 - Connection tracking: `mktxp_ip_connections_total`
