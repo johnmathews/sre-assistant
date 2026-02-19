@@ -214,9 +214,12 @@ class TruenasDiskEntry(TypedDict, total=False):
 class TruenasSystemInfo(TypedDict, total=False):
     version: str
     hostname: str
-    uptime_seconds: int
+    uptime_seconds: float
     system_product: str
-    physical_mem: int
+    physmem: int
+    cores: int
+    loadavg: list[float]
+    ecc_memory: bool
 
 
 class TruenasAppEntry(TypedDict, total=False):
@@ -488,15 +491,23 @@ def _format_system_status(
     version = info.get("version", "?")
     hostname = info.get("hostname", "?")
     uptime_secs = info.get("uptime_seconds", 0)
-    uptime_days = uptime_secs // 86400 if uptime_secs else 0
+    uptime_days = int(uptime_secs) // 86400 if uptime_secs else 0
+    uptime_hours = (int(uptime_secs) % 86400) // 3600 if uptime_secs else 0
     product = info.get("system_product", "?")
-    mem = info.get("physical_mem", 0)
+    mem = info.get("physmem", 0)
+    cores = info.get("cores", 0)
+    loadavg = info.get("loadavg", [])
+    ecc = info.get("ecc_memory", False)
 
     lines.append(f"  Version: {version}")
     lines.append(f"  Hostname: {hostname}")
-    lines.append(f"  Uptime: {uptime_days} days")
+    lines.append(f"  Uptime: {uptime_days}d {uptime_hours}h")
     lines.append(f"  Hardware: {product}")
-    lines.append(f"  Physical memory: {_format_bytes(mem)}")
+    lines.append(f"  Memory: {_format_bytes(mem)} ({'ECC' if ecc else 'non-ECC'})")
+    if cores:
+        lines.append(f"  CPU cores: {cores}")
+    if loadavg and isinstance(loadavg, list) and len(loadavg) >= 3:
+        lines.append(f"  Load avg: {loadavg[0]:.2f}, {loadavg[1]:.2f}, {loadavg[2]:.2f}")
 
     # Alerts
     active_alerts = [a for a in alerts if not a.get("dismissed", False)]
@@ -758,7 +769,7 @@ async def truenas_snapshots(dataset: str | None = None, limit: int = 50) -> str:
     logger.info("Fetching TrueNAS snapshots (dataset=%s, limit=%d)", dataset, limit)
 
     try:
-        snap_params: dict[str, str] = {"limit": str(limit), "sort": "-id"}
+        snap_params: dict[str, str] = {"limit": str(limit)}
         if dataset:
             snap_params["dataset"] = dataset
         snaps_raw = await _truenas_get("/zfs/snapshot", params=snap_params)

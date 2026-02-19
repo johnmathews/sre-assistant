@@ -300,9 +300,12 @@ class TestTruenasSystemStatus:
                 json={
                     "version": "TrueNAS-SCALE-24.04.2",
                     "hostname": "truenas",
-                    "uptime_seconds": 864000,
+                    "uptime_seconds": 864000.0,
                     "system_product": "Supermicro",
-                    "physical_mem": 64 * 1024**3,
+                    "physmem": 64 * 1024**3,
+                    "cores": 4,
+                    "loadavg": [0.5, 0.3, 0.2],
+                    "ecc_memory": False,
                 },
             )
         )
@@ -322,7 +325,7 @@ class TestTruenasSystemStatus:
 
         result = await truenas_system_status.ainvoke({})
         assert "TrueNAS-SCALE-24.04.2" in result
-        assert "10 days" in result
+        assert "10d 0h" in result
         assert "WARNING" in result
         assert "sda" in result
 

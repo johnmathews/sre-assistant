@@ -330,9 +330,12 @@ class TestFormatSystemStatus:
         info: TruenasSystemInfo = {
             "version": "TrueNAS-SCALE-24.04.2",
             "hostname": "truenas",
-            "uptime_seconds": 864000,
+            "uptime_seconds": 864000.0,
             "system_product": "Supermicro X11SCL-IF",
-            "physical_mem": 64 * 1024**3,
+            "physmem": 64 * 1024**3,
+            "cores": 8,
+            "loadavg": [1.23, 0.98, 0.76],
+            "ecc_memory": True,
         }
         alerts: list[TruenasAlertEntry] = [
             {"level": "WARNING", "formatted": "Pool tank is 80% full", "dismissed": False},
@@ -355,8 +358,11 @@ class TestFormatSystemStatus:
         result = _format_system_status(info, alerts, jobs, disks)
         assert "TrueNAS-SCALE-24.04.2" in result
         assert "truenas" in result
-        assert "10 days" in result
+        assert "10d 0h" in result
         assert "Supermicro" in result
+        assert "ECC" in result
+        assert "CPU cores: 8" in result
+        assert "Load avg: 1.23" in result
         assert "1 active" in result
         assert "WARNING" in result
         assert "80% full" in result
