@@ -378,6 +378,8 @@ The assistant has **up to 23 tools** across 8 categories, depending on which int
 - "What apps are running on TrueNAS?"
 - "Which VM generates the most logs?"
 - "Are the HDDs spun down?"
+- "What's my peak internet download speed this week?"
+- "How many WiFi clients are connected?"
 
 **Artifacts it can generate:**
 - Root cause analysis (RCA) drafts
@@ -724,7 +726,7 @@ homelab-sre-assistant/
 │   └── install-hooks.sh          # Install git pre-push hook
 ├── dashboards/
 │   └── sre-assistant-sli.json    # Grafana SLI/SLO dashboard
-├── tests/                        # Unit + integration tests (499 passing)
+├── tests/                        # Unit + integration tests (506 passing)
 ├── docs/                         # Design documentation
 │   ├── architecture.md           # System overview, data flow, deployment
 │   ├── tool-reference.md         # All tools with inputs and examples

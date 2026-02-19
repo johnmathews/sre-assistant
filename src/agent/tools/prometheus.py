@@ -1,5 +1,6 @@
 """LangChain tool for querying a Prometheus instance via its HTTP API."""
 
+import contextlib
 import logging
 import re
 from datetime import UTC, datetime
@@ -205,7 +206,20 @@ def _format_result(data: PrometheusResponse) -> str:
             lines.append(f"  {{{label_str}}} => {val}")
         elif result_type == "matrix":
             values = series.get("values", [])
-            lines.append(f"  {{{label_str}}} => {len(values)} samples")
+            # Compute summary stats so the agent sees the full data range
+            # even when only a few samples are displayed
+            numeric_vals: list[float] = []
+            for point in values:
+                with contextlib.suppress(ValueError, IndexError):
+                    numeric_vals.append(float(point[1]))
+            if numeric_vals:
+                min_val = min(numeric_vals)
+                max_val = max(numeric_vals)
+                avg_val = sum(numeric_vals) / len(numeric_vals)
+                summary = f" (min: {min_val:.4g}, max: {max_val:.4g}, avg: {avg_val:.4g})"
+            else:
+                summary = ""
+            lines.append(f"  {{{label_str}}} => {len(values)} samples{summary}")
             for point in values[:3]:
                 ts_val = float(point[0])
                 dt_str = datetime.fromtimestamp(ts_val, tz=UTC).strftime("%H:%M:%S")

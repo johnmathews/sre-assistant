@@ -44,7 +44,7 @@ Query Prometheus for metric values over a time range.
 
 - **Input:** `query` (PromQL), `start`, `end` (timestamps), `step` (duration)
 - **Example questions:** "How has CPU changed over the last hour?", "Show memory usage for the past day"
-- **Returns:** Time series data with sample counts
+- **Returns:** Time series data with sample counts and per-series summary statistics (min, max, avg)
 
 ## Grafana Alerting (always enabled)
 

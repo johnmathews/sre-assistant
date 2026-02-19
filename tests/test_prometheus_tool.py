@@ -100,6 +100,45 @@ class TestFormatResult:
         assert "WARNING" in output
         assert "first 50" in output
 
+    def test_matrix_result_shows_summary_stats(self) -> None:
+        """Matrix results include min/max/avg so the agent sees the full range."""
+        series: PrometheusSeries = {
+            "metric": {"name": "ether1", "__name__": "mktxp_interface_download_bytes_per_second"},
+            "values": [
+                [1700000000, "-5000"],
+                [1700003600, "-100000"],
+                [1700007200, "-2000"],
+                [1700010800, "-350000"],
+                [1700014400, "-8000"],
+                [1700018000, "-1500"],
+                [1700021600, "-12000"],
+            ],
+        }
+        result_data: PrometheusData = {"resultType": "matrix", "result": [series]}
+        data: PrometheusResponse = {"status": "success", "data": result_data}
+        output = _format_result(data)
+        assert "7 samples" in output
+        assert "min: -3.5e+05" in output
+        assert "max: -1500" in output
+        assert "avg:" in output
+
+    def test_matrix_summary_stats_with_positive_values(self) -> None:
+        """Summary stats work correctly with positive values."""
+        series: PrometheusSeries = {
+            "metric": {"hostname": "media"},
+            "values": [
+                [1700000000, "10"],
+                [1700003600, "50"],
+                [1700007200, "30"],
+            ],
+        }
+        result_data: PrometheusData = {"resultType": "matrix", "result": [series]}
+        data: PrometheusResponse = {"status": "success", "data": result_data}
+        output = _format_result(data)
+        assert "min: 10" in output
+        assert "max: 50" in output
+        assert "avg: 30" in output
+
 
 class TestFormatSearchResults:
     def test_formats_metrics_with_metadata(self) -> None:

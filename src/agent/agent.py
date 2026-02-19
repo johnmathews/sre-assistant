@@ -181,10 +181,69 @@ Use these patterns when constructing Prometheus queries:
 - `container_*` — cadvisor (Docker container metrics)
 - `pve_*` — pve_exporter (Proxmox guest metrics: `pve_cpu_usage_ratio`, \
 `pve_memory_usage_bytes`, `pve_disk_usage_bytes`, `pve_up`)
-- `mktxp_*` — MikroTik router metrics
+- `mktxp_*` — MikroTik router metrics (see "MikroTik Router Metrics" section below)
 - `disk_power_state` — disk-status-exporter on TrueNAS (HDD power state: 0=standby, \
 1=idle, 2=active/idle, -1=unknown). See "HDD power state questions" section above for strategy.
 - `disk_info` — disk-status-exporter (disk identity, always 1). Labels: device_id, type, pool
+
+**Negative gauge values / max and min with signed metrics:**
+- `max_over_time` returns the numerically largest value — for negative numbers, this is \
+the value **closest to zero** (i.e. the SMALLEST absolute value)
+- `min_over_time` returns the numerically smallest value — for negative numbers, this is \
+the **LARGEST absolute value** (i.e. the biggest magnitude)
+- To find the peak absolute value of a negative metric, use: \
+`abs(min_over_time(metric{...}[duration]))` as an instant query
+- Or use PromQL `abs()`: `max_over_time(abs(metric{...})[duration])` (note: `abs()` goes \
+inside `max_over_time` only if supported; otherwise query raw and interpret absolute values)
+
+## MikroTik Router Metrics (mktxp_*)
+
+The MikroTik hAP ax³ router is monitored via MKTXP exporter. All `mktxp_*` metrics have labels \
+`routerboard_name="hap-ax3"` and `hostname="mikrotik"`. Interface metrics use the **`name`** label \
+(NOT `interface`) for interface identification.
+
+**Interface topology (`name` label values):**
+- `youfone.nl` — PPPoE WAN tunnel (ISP connection). **Best metric for internet traffic measurement.**
+- `ether1` — physical WAN port (carries PPPoE). Nearly identical to `youfone.nl` plus PPPoE overhead.
+- `ether2`–`ether5` — physical LAN ports (some may be unused / zero traffic)
+- `defconf` — default bridge (aggregates all LAN ports + WiFi). Represents total LAN-side traffic.
+- `2GHz`, `5GHz` — WiFi radio interfaces
+- `lo` — loopback (always zero)
+
+When the user asks about "internet speed", "WAN bandwidth", or "download from external internet", \
+use `name="youfone.nl"` (the ISP tunnel). When asked about "LAN traffic" or "total network usage", \
+use `name="defconf"` (the bridge).
+
+**CRITICAL — download bytes/sec values are negative:**
+- `mktxp_interface_download_bytes_per_second` reports **negative** values (exporter convention)
+- `mktxp_interface_upload_bytes_per_second` reports positive values
+- Always use `abs()` or negate when presenting bandwidth to users
+- **Peak download rate (instant query):** \
+`abs(min_over_time(mktxp_interface_download_bytes_per_second{name="youfone.nl"}[7d]))` \
+— `min_over_time` gets the most negative value (= highest download rate), `abs()` makes it positive
+- **Do NOT use `max_over_time`** on negative download values — it returns the value closest to zero \
+(= lowest download rate), which is the opposite of what you want
+- **Current download rate:** `abs(mktxp_interface_download_bytes_per_second{name="youfone.nl"})`
+
+**Human-readable bandwidth — always present both units:**
+- Bytes/sec ÷ 1,000,000 = MB/s (megabytes per second, file transfer unit)
+- Bytes/sec × 8 ÷ 1,000,000 = Mbps (megabits per second, ISP/link speed unit)
+- Example: 12,500,000 B/s = 12.5 MB/s = 100 Mbps
+
+**Common networking queries:**
+- Total data transferred: `increase(mktxp_interface_rx_byte_total{name="youfone.nl"}[24h])` (bytes downloaded in 24h)
+- Traffic rate over time: use `prometheus_range_query` with \
+`abs(mktxp_interface_download_bytes_per_second{name="youfone.nl"})` and appropriate step
+- Per-interface comparison: query without `name` filter to see all interfaces at once
+- WiFi client count: `mktxp_wlan_registered_clients`
+- WiFi signal quality: `mktxp_wlan_clients_signal_strength` (dBm; -30=excellent, -67=good, -80=poor)
+- Active DHCP leases: `mktxp_dhcp_lease_active_count`
+- Connection tracking: `mktxp_ip_connections_total`
+- Link flaps: `increase(mktxp_link_downs_total{name="ether1"}[7d])` — should be 0
+- Interface errors: `rate(mktxp_interface_rx_error_total{name="ether1"}[5m])` — should be near 0
+- Physical link speed: `mktxp_interface_rate{name="ether1"}` (in bits/sec, e.g. 1000000000 = 1 Gbps)
+- Router health: `mktxp_system_cpu_load`, `mktxp_system_free_memory`, `mktxp_system_cpu_temperature`
+- Public IP: `mktxp_public_ip_address_info` (IP is in the label values, metric value is always 1)
 
 ## Loki Log Querying
 
