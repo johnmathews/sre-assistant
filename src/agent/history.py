@@ -1,6 +1,7 @@
 """Persist conversation history to JSON files for debugging and analysis."""
 
 import contextlib
+import glob
 import json
 import logging
 import os
@@ -11,6 +12,12 @@ from typing import Any
 from langchain_core.messages import BaseMessage, messages_to_dict
 
 logger = logging.getLogger(__name__)
+
+
+def _find_existing_file(history_dir: str, session_id: str) -> str | None:
+    """Find an existing conversation file for this session ID."""
+    matches = glob.glob(os.path.join(history_dir, f"*_{session_id}.json"))
+    return matches[0] if matches else None
 
 
 def save_conversation(
@@ -49,16 +56,23 @@ def _save_conversation_inner(
     serialized = messages_to_dict(valid_messages)
     now = datetime.now(UTC).isoformat()
 
-    # Preserve created_at from existing file if present
-    filepath = os.path.join(history_dir, f"{session_id}.json")
-    created_at = now
-    if os.path.exists(filepath):
+    os.makedirs(history_dir, exist_ok=True)
+
+    # Find existing file for this session, or create a new one with datetime prefix
+    existing_path = _find_existing_file(history_dir, session_id)
+    if existing_path:
+        filepath = existing_path
+        created_at = now
         try:
-            with open(filepath) as f:
+            with open(existing_path) as f:
                 existing: dict[str, Any] = json.load(f)
             created_at = existing.get("created_at", now)
         except (json.JSONDecodeError, OSError):
             pass  # Corrupted file — overwrite with new created_at
+    else:
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%d_%H%M%S")
+        filepath = os.path.join(history_dir, f"{timestamp}_{session_id}.json")
+        created_at = now
 
     payload: dict[str, Any] = {
         "session_id": session_id,
@@ -68,8 +82,6 @@ def _save_conversation_inner(
         "model": model,
         "messages": serialized,
     }
-
-    os.makedirs(history_dir, exist_ok=True)
 
     # Atomic write: write to temp file then rename
     fd, tmp_path = tempfile.mkstemp(dir=history_dir, suffix=".tmp")

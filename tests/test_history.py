@@ -1,5 +1,6 @@
 """Tests for conversation history persistence."""
 
+import glob
 import json
 import os
 from typing import Any
@@ -9,6 +10,13 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from src.agent.history import save_conversation
+
+
+def _find_session_file(history_dir: str, session_id: str) -> str:
+    """Find the JSON file for a session ID (datetime prefix varies)."""
+    matches = glob.glob(os.path.join(history_dir, f"*_{session_id}.json"))
+    assert len(matches) == 1, f"Expected 1 file for {session_id}, found {len(matches)}"
+    return matches[0]
 
 
 class TestSaveConversation:
@@ -23,9 +31,7 @@ class TestSaveConversation:
 
         save_conversation(history_dir, "session-1", messages, "gpt-4o-mini")
 
-        filepath = os.path.join(history_dir, "session-1.json")
-        assert os.path.exists(filepath)
-
+        filepath = _find_session_file(history_dir, "session-1")
         with open(filepath) as f:
             data: dict[str, Any] = json.load(f)
 
@@ -35,6 +41,10 @@ class TestSaveConversation:
         assert len(data["messages"]) == 2
         assert "created_at" in data
         assert "updated_at" in data
+        # Filename has datetime prefix
+        basename = os.path.basename(filepath)
+        assert basename.endswith("_session-1.json")
+        assert len(basename) > len("_session-1.json")  # Has datetime prefix
 
     def test_includes_tool_call_messages(self, tmp_path: Any) -> None:
         history_dir = str(tmp_path)
@@ -58,7 +68,7 @@ class TestSaveConversation:
 
         save_conversation(history_dir, "tool-session", messages, "gpt-4o-mini")
 
-        filepath = os.path.join(history_dir, "tool-session.json")
+        filepath = _find_session_file(history_dir, "tool-session")
         with open(filepath) as f:
             data: dict[str, Any] = json.load(f)
 
@@ -73,12 +83,12 @@ class TestSaveConversation:
 
         save_conversation(history_dir, "persist-test", messages, "gpt-4o-mini")
 
-        filepath = os.path.join(history_dir, "persist-test.json")
+        filepath = _find_session_file(history_dir, "persist-test")
         with open(filepath) as f:
             first_data: dict[str, Any] = json.load(f)
         original_created_at = first_data["created_at"]
 
-        # Save again — created_at should be preserved
+        # Save again — created_at should be preserved, same file reused
         messages.extend([HumanMessage(content="Second turn"), AIMessage(content="Response 2")])
         save_conversation(history_dir, "persist-test", messages, "gpt-4o-mini")
 
@@ -95,7 +105,8 @@ class TestSaveConversation:
 
         save_conversation(history_dir, "s1", messages, "gpt-4o-mini")
 
-        assert os.path.exists(os.path.join(history_dir, "s1.json"))
+        matches = glob.glob(os.path.join(history_dir, "*_s1.json"))
+        assert len(matches) == 1
 
     def test_swallows_errors(self, tmp_path: Any) -> None:
         """save_conversation must never raise — errors are logged only."""
@@ -121,7 +132,7 @@ class TestSaveConversation:
 
         save_conversation(history_dir, "filter-test", messages, "gpt-4o-mini")
 
-        filepath = os.path.join(history_dir, "filter-test.json")
+        filepath = _find_session_file(history_dir, "filter-test")
         with open(filepath) as f:
             data: dict[str, Any] = json.load(f)
 
@@ -134,13 +145,14 @@ class TestSaveConversation:
         save_conversation(history_dir, "empty-test", messages, "gpt-4o-mini")
 
         # No file should be created when there are no valid messages
-        filepath = os.path.join(history_dir, "empty-test.json")
-        assert not os.path.exists(filepath)
+        matches = glob.glob(os.path.join(history_dir, "*_empty-test.json"))
+        assert len(matches) == 0
 
     def test_handles_corrupted_existing_file(self, tmp_path: Any) -> None:
         """If the existing JSON is corrupted, overwrite with fresh created_at."""
         history_dir = str(tmp_path)
-        filepath = os.path.join(history_dir, "corrupt.json")
+        # Create a corrupted file with the datetime_session format
+        filepath = os.path.join(history_dir, "2026-01-01_000000_corrupt.json")
         os.makedirs(history_dir, exist_ok=True)
         with open(filepath, "w") as f:
             f.write("not valid json{{{")
