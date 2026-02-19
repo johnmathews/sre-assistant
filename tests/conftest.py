@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
+from src.config import Settings, get_settings
+
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
@@ -23,6 +25,29 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if "e2e" in item.keywords:
             item.add_marker(skip_e2e)
+
+
+@pytest.fixture(autouse=True)
+def _no_dotenv(request: pytest.FixtureRequest) -> Generator[None]:
+    """Block .env loading so tests that forget mock_settings fail locally, not just in CI.
+
+    Sets Settings.model_config['env_file'] = None before each test (except e2e).
+    Tests that use mock_settings bypass Settings() entirely, so this is transparent.
+    Tests that forget mock_settings will hit a validation error on required fields.
+    """
+    if "e2e" in request.keywords:
+        yield
+        return
+
+    get_settings.cache_clear()
+    original = Settings.model_config.get("env_file")
+    Settings.model_config["env_file"] = None
+
+    try:
+        yield
+    finally:
+        Settings.model_config["env_file"] = original
+        get_settings.cache_clear()
 
 
 @pytest.fixture

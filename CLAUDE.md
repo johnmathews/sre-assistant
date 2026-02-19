@@ -76,6 +76,8 @@ Three test tiers:
 
 The `mock_settings` fixture in `tests/conftest.py` provides fake config so tests never need a `.env` file. When adding new modules that import `get_settings`, add a corresponding patch to this fixture.
 
+The autouse `_no_dotenv` fixture blocks `.env` loading for all non-e2e tests by setting `Settings.model_config['env_file'] = None`. This ensures any test that forgets `mock_settings` fails locally with the same validation error as CI — not silently passes because `.env` exists on the developer machine.
+
 ## User Shorthand
 
 - **DCP** = update/create documentation, commit changes, push to remote

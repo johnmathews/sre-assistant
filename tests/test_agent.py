@@ -147,7 +147,7 @@ class TestInvokeAgent:
     """Tests for invoke_agent error handling and session recovery."""
 
     @pytest.mark.integration
-    async def test_returns_ai_message_content(self) -> None:
+    async def test_returns_ai_message_content(self, mock_settings: object) -> None:
         mock_agent = AsyncMock()
         mock_agent.ainvoke.return_value = {"messages": [AIMessage(content="CPU is at 42%.")]}
 
@@ -155,7 +155,7 @@ class TestInvokeAgent:
         assert result == "CPU is at 42%."
 
     @pytest.mark.integration
-    async def test_returns_fallback_when_no_ai_message(self) -> None:
+    async def test_returns_fallback_when_no_ai_message(self, mock_settings: object) -> None:
         mock_agent = AsyncMock()
         mock_agent.ainvoke.return_value = {"messages": []}
 
@@ -163,7 +163,7 @@ class TestInvokeAgent:
         assert result == "No response generated."
 
     @pytest.mark.integration
-    async def test_recovers_from_corrupted_tool_call_history(self) -> None:
+    async def test_recovers_from_corrupted_tool_call_history(self, mock_settings: object) -> None:
         """When session history has orphaned tool_calls, invoke_agent retries
         with a fresh session instead of permanently failing."""
         tool_call_error = Exception(
@@ -193,7 +193,7 @@ class TestInvokeAgent:
         assert second_thread.startswith("broken-sess-")
 
     @pytest.mark.integration
-    async def test_raises_non_tool_call_errors(self) -> None:
+    async def test_raises_non_tool_call_errors(self, mock_settings: object) -> None:
         """Errors unrelated to tool_call pairing still propagate."""
         mock_agent = AsyncMock()
         mock_agent.ainvoke.side_effect = RuntimeError("LLM exploded")
@@ -202,7 +202,7 @@ class TestInvokeAgent:
             await invoke_agent(mock_agent, "boom", session_id="s1")
 
     @pytest.mark.integration
-    async def test_timeout_error_propagates(self) -> None:
+    async def test_timeout_error_propagates(self, mock_settings: object) -> None:
         """A generic timeout from ainvoke propagates (not a tool_call pairing issue)."""
         mock_agent = AsyncMock()
         mock_agent.ainvoke.side_effect = TimeoutError("timed out")
@@ -211,7 +211,7 @@ class TestInvokeAgent:
             await invoke_agent(mock_agent, "slow query", session_id="s1")
 
     @pytest.mark.integration
-    async def test_recovery_failure_propagates(self) -> None:
+    async def test_recovery_failure_propagates(self, mock_settings: object) -> None:
         """If the fresh-session retry also fails, that error propagates."""
         tool_call_error = Exception(
             "An assistant message with 'tool_calls' must be followed by "
