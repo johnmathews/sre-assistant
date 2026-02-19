@@ -111,11 +111,12 @@ List all VMs and containers on the Proxmox node.
 
 ### proxmox_get_guest_config
 
-Get the full configuration of a specific VM or container by VMID.
+Get the full configuration of a specific VM or container.
 
-- **Input:** `vmid` (integer), `guest_type` (string, default "qemu")
+- **Input:** `name` (string, preferred — auto-resolves VMID and type) OR `vmid` (integer) + `guest_type` (string, default "qemu")
 - **Example questions:** "What disks does VM 100 have?", "Show the config for jellyfin"
 - **Returns:** Grouped config: compute (CPU/RAM), disks, network, boot/OS settings
+- **Name lookup:** When `name` is provided (e.g. "immich"), the tool lists all guests to resolve the correct VMID and type (qemu/lxc) automatically. This avoids needing to call `proxmox_list_guests` first.
 
 ### proxmox_node_status
 

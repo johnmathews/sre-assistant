@@ -181,7 +181,12 @@ def _format_result(data: PrometheusResponse) -> str:
     results = list(result_data.get("result", []))
 
     if not results:
-        return "Query returned no results. Check that the metric name and label filters are correct."
+        return (
+            "Query returned no results. This usually means the label filters are wrong — "
+            "not all metrics share the same labels. Try the query without label filters "
+            "(e.g. just `pve_cpu_usage_ratio`) to see what labels exist on the metric, "
+            "or use prometheus_search_metrics to verify the metric name."
+        )
 
     lines: list[str] = [f"Result type: {result_type}, series count: {len(results)}"]
 

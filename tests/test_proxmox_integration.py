@@ -182,6 +182,97 @@ class TestProxmoxGetGuestConfig:
 
 
 @pytest.mark.integration
+class TestProxmoxGetGuestConfigByName:
+    """Tests for the name-based lookup feature of proxmox_get_guest_config."""
+
+    def _mock_guest_lists(self) -> None:
+        """Set up mock responses for both qemu and lxc guest lists."""
+        respx.get("https://proxmox.test:8006/api2/json/nodes/proxmox/qemu").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"vmid": 100, "name": "home-assistant", "status": "running", "cpus": 2, "maxmem": 4294967296},
+                        {"vmid": 104, "name": "truenas", "status": "running", "cpus": 4, "maxmem": 17179869184},
+                    ]
+                },
+            )
+        )
+        respx.get("https://proxmox.test:8006/api2/json/nodes/proxmox/lxc").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"vmid": 113, "name": "immich", "status": "running", "cpus": 12, "maxmem": 6442450944},
+                        {"vmid": 110, "name": "jellyfin", "status": "running", "cpus": 8, "maxmem": 4294967296},
+                    ]
+                },
+            )
+        )
+
+    @respx.mock
+    async def test_resolve_lxc_by_name(self) -> None:
+        self._mock_guest_lists()
+        respx.get("https://proxmox.test:8006/api2/json/nodes/proxmox/lxc/113/config").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "hostname": "immich",
+                        "cores": 12,
+                        "memory": 6144,
+                        "rootfs": "local-zfs:subvol-113-disk-0,size=50G",
+                    }
+                },
+            )
+        )
+
+        result = await proxmox_get_guest_config.ainvoke({"name": "immich"})
+        assert "113" in result
+        assert "cores: 12" in result
+        assert "rootfs:" in result
+
+    @respx.mock
+    async def test_resolve_qemu_by_name(self) -> None:
+        self._mock_guest_lists()
+        respx.get("https://proxmox.test:8006/api2/json/nodes/proxmox/qemu/104/config").mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": {"name": "truenas", "cores": 4, "memory": 16384}},
+            )
+        )
+
+        result = await proxmox_get_guest_config.ainvoke({"name": "truenas"})
+        assert "104" in result
+        assert "truenas" in result
+
+    @respx.mock
+    async def test_name_case_insensitive(self) -> None:
+        self._mock_guest_lists()
+        respx.get("https://proxmox.test:8006/api2/json/nodes/proxmox/lxc/113/config").mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": {"hostname": "immich", "cores": 12, "memory": 6144}},
+            )
+        )
+
+        result = await proxmox_get_guest_config.ainvoke({"name": "Immich"})
+        assert "113" in result
+
+    @respx.mock
+    async def test_name_not_found(self) -> None:
+        self._mock_guest_lists()
+
+        result = await proxmox_get_guest_config.ainvoke({"name": "nonexistent"})
+        assert "no guest found" in result.lower()
+        assert "proxmox_list_guests" in result.lower()
+
+    async def test_neither_vmid_nor_name(self) -> None:
+        result = await proxmox_get_guest_config.ainvoke({})
+        assert "provide either vmid or name" in result.lower()
+
+
+@pytest.mark.integration
 class TestProxmoxNodeStatus:
     @respx.mock
     async def test_successful_status(self) -> None:

@@ -301,10 +301,20 @@ class ListGuestsInput(BaseModel):
 class GetGuestConfigInput(BaseModel):
     """Input for fetching a single guest's configuration."""
 
-    vmid: int = Field(description="The VM/container ID (e.g. 100, 101).")
+    vmid: int | None = Field(
+        default=None,
+        description="The VM/container ID (e.g. 100, 113). Provide either vmid or name.",
+    )
+    name: str | None = Field(
+        default=None,
+        description=(
+            "Guest name (e.g. 'immich', 'jellyfin'). If provided, automatically "
+            "resolves to the correct VMID and guest type. Preferred when you don't know the VMID."
+        ),
+    )
     guest_type: str = Field(
         default="qemu",
-        description="Guest type: 'qemu' for VMs, 'lxc' for containers. Defaults to 'qemu'.",
+        description="Guest type: 'qemu' for VMs, 'lxc' for containers. Ignored when using name lookup.",
     )
 
 
@@ -344,13 +354,15 @@ TOOL_DESCRIPTION_LIST_GUESTS = (
 )
 
 TOOL_DESCRIPTION_GET_CONFIG = (
-    "Get the full configuration of a specific VM or container by its VMID. "
+    "Get the full configuration of a specific VM or container. "
     "Use this to answer questions like 'what disks does VM 100 have?', "
     "'show the config for jellyfin', 'how much RAM is allocated to container 101?', "
     "or 'what network interface does VM 102 use?'.\n\n"
     "Returns compute settings (CPU, RAM), disk devices, network interfaces, "
     "boot/OS settings, and other configuration parameters.\n\n"
-    "You need to know the VMID — use proxmox_list_guests first if unsure."
+    "You can identify the guest by either:\n"
+    "- `name` (preferred) — e.g. name='immich'. Automatically resolves the VMID and type.\n"
+    "- `vmid` + `guest_type` — e.g. vmid=113, guest_type='lxc'. Use when you know the ID."
 )
 
 TOOL_DESCRIPTION_NODE_STATUS = (
@@ -410,12 +422,66 @@ proxmox_list_guests.description = TOOL_DESCRIPTION_LIST_GUESTS
 proxmox_list_guests.handle_tool_error = True
 
 
+async def _resolve_guest_by_name(name: str) -> tuple[int, str]:
+    """Resolve a guest name to (vmid, guest_type) by listing all guests.
+
+    Raises ToolException if the name is not found or matches multiple guests.
+    """
+    settings = get_settings()
+    node = settings.proxmox_node
+    name_lower = name.lower()
+
+    matches: list[tuple[int, str, str]] = []  # (vmid, guest_type, actual_name)
+
+    for gtype in ("qemu", "lxc"):
+        data = await _pve_get(f"/nodes/{node}/{gtype}")
+        raw_list: list[dict[str, object]] = data.get("data", [])  # type: ignore[assignment]  # pyright: ignore[reportAssignmentType]
+        for entry in raw_list:
+            entry_name = str(entry.get("name", ""))
+            if entry_name.lower() == name_lower:
+                vmid_val = entry.get("vmid", 0)
+                vmid_raw: int = int(vmid_val)  # type: ignore[call-overload]
+                matches.append((vmid_raw, gtype, entry_name))
+
+    if not matches:
+        raise ToolException(
+            f"No guest found with name '{name}'. Use proxmox_list_guests to see available guests and their VMIDs."
+        )
+    if len(matches) > 1:
+        match_strs = [f"{m[0]} ({m[1]})" for m in matches]
+        raise ToolException(
+            f"Multiple guests match name '{name}': {', '.join(match_strs)}. Use vmid instead to specify which one."
+        )
+
+    return matches[0][0], matches[0][1]
+
+
 @tool("proxmox_get_guest_config", args_schema=GetGuestConfigInput)  # pyright: ignore[reportUnknownParameterType]
-async def proxmox_get_guest_config(vmid: int, guest_type: str = "qemu") -> str:
+async def proxmox_get_guest_config(
+    vmid: int | None = None,
+    name: str | None = None,
+    guest_type: str = "qemu",
+) -> str:
     """Get configuration for a specific VM or container. See TOOL_DESCRIPTION_GET_CONFIG."""
     settings = get_settings()
     if not settings.proxmox_url:
         raise ToolException("Proxmox VE is not configured (PROXMOX_URL is empty).")
+
+    if vmid is None and name is None:
+        raise ToolException("Provide either vmid or name to identify the guest.")
+
+    # Resolve name to vmid if needed
+    if name is not None and vmid is None:
+        try:
+            vmid, guest_type = await _resolve_guest_by_name(name)
+        except httpx.ConnectError as e:
+            raise ToolException(f"Cannot connect to Proxmox at {settings.proxmox_url}: {e}") from e
+        except httpx.TimeoutException as e:
+            raise ToolException(f"Proxmox request timed out after {DEFAULT_TIMEOUT_SECONDS}s: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise ToolException(f"Proxmox API error: HTTP {e.response.status_code} - {e.response.text[:500]}") from e
+
+    assert vmid is not None  # satisfied by either direct input or name resolution
 
     node = settings.proxmox_node
     logger.info("Fetching Proxmox guest config (vmid=%d, type=%s, node=%s)", vmid, guest_type, node)
