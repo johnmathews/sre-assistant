@@ -266,7 +266,9 @@ class TestTruenasSnapshots:
 
         await truenas_snapshots.ainvoke({"dataset": "tank/media"})
         assert route.called
-        assert route.calls.last.request.url.params["dataset"] == "tank/media"
+        # Dataset filter is now passed via query-filters JSON param
+        filters_param = route.calls.last.request.url.params["query-filters"]
+        assert "tank/media" in filters_param
 
     @respx.mock
     async def test_connect_error(self) -> None:

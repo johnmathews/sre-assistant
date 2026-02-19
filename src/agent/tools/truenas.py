@@ -1,5 +1,6 @@
 """LangChain tools for querying the TrueNAS SCALE REST API."""
 
+import json
 import logging
 import ssl
 from typing import TypedDict
@@ -47,14 +48,18 @@ def _truenas_headers() -> dict[str, str]:
 # --- HTTP helper ---
 
 
-async def _truenas_get(path: str, params: dict[str, str] | None = None) -> object:
+async def _truenas_get(
+    path: str,
+    params: dict[str, str] | None = None,
+    timeout: int | None = None,
+) -> object:
     """Make an authenticated GET request to the TrueNAS SCALE API.
 
     TrueNAS returns plain JSON (arrays or objects), NOT wrapped in ``{"data": ...}``.
     """
     url = f"{get_settings().truenas_url}/api/v2.0{path}"
     async with httpx.AsyncClient(
-        timeout=DEFAULT_TIMEOUT_SECONDS,
+        timeout=timeout or DEFAULT_TIMEOUT_SECONDS,
         verify=_truenas_ssl_verify(),
     ) as client:
         response = await client.get(url, headers=_truenas_headers(), params=params)
@@ -759,6 +764,9 @@ truenas_list_shares.description = TOOL_DESCRIPTION_LIST_SHARES
 truenas_list_shares.handle_tool_error = True
 
 
+SNAPSHOT_TIMEOUT_SECONDS = 30
+
+
 @tool("truenas_snapshots", args_schema=SnapshotsInput)  # pyright: ignore[reportUnknownParameterType]
 async def truenas_snapshots(dataset: str | None = None, limit: int = 50) -> str:
     """List ZFS snapshots, schedules, and replication. See TOOL_DESCRIPTION_SNAPSHOTS."""
@@ -769,10 +777,29 @@ async def truenas_snapshots(dataset: str | None = None, limit: int = 50) -> str:
     logger.info("Fetching TrueNAS snapshots (dataset=%s, limit=%d)", dataset, limit)
 
     try:
-        snap_params: dict[str, str] = {"limit": str(limit)}
+        # Build TrueNAS query-filters and query-options as JSON query params.
+        # The /zfs/snapshot endpoint is a query-type method that supports:
+        #   query-filters: [[field, op, value], ...]
+        #   query-options: {limit, offset, order_by, select, extra}
+        # Plain "limit=50" params are ignored; must use the JSON format.
+        snap_params: dict[str, str] = {}
+
+        query_filters: list[list[str]] = []
         if dataset:
-            snap_params["dataset"] = dataset
-        snaps_raw = await _truenas_get("/zfs/snapshot", params=snap_params)
+            query_filters.append(["dataset", "=", dataset])
+        if query_filters:
+            snap_params["query-filters"] = json.dumps(query_filters)
+
+        query_options: dict[str, object] = {
+            "limit": limit,
+            "order_by": ["-id"],
+            "select": ["id", "name", "dataset", "snapshot_name", "type"],
+        }
+        snap_params["query-options"] = json.dumps(query_options)
+
+        snaps_raw = await _truenas_get(
+            "/zfs/snapshot", params=snap_params, timeout=SNAPSHOT_TIMEOUT_SECONDS
+        )
         snapshots: list[TruenasSnapshotEntry] = snaps_raw if isinstance(snaps_raw, list) else []
 
         tasks_raw = await _truenas_get("/pool/snapshottask")
@@ -783,7 +810,7 @@ async def truenas_snapshots(dataset: str | None = None, limit: int = 50) -> str:
     except httpx.ConnectError as e:
         raise ToolException(f"Cannot connect to TrueNAS at {settings.truenas_url}: {e}") from e
     except httpx.TimeoutException as e:
-        raise ToolException(f"TrueNAS request timed out after {DEFAULT_TIMEOUT_SECONDS}s: {e}") from e
+        raise ToolException(f"TrueNAS request timed out after {SNAPSHOT_TIMEOUT_SECONDS}s: {e}") from e
     except httpx.HTTPStatusError as e:
         raise ToolException(f"TrueNAS API error: HTTP {e.response.status_code} - {e.response.text[:500]}") from e
 

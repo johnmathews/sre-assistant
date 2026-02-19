@@ -2,6 +2,7 @@
 
 import logging
 import ssl
+from datetime import UTC, datetime
 from typing import TypedDict
 
 import httpx
@@ -181,12 +182,21 @@ def _format_pbs_tasks(tasks: list[PbsTaskEntry]) -> str:
         starttime = task.get("starttime", 0)
         endtime = task.get("endtime")
 
+        start_str = datetime.fromtimestamp(starttime, tz=UTC).strftime(
+            "%Y-%m-%d %H:%M:%S UTC"
+        )
+        end_str = ""
+        if endtime:
+            end_str = datetime.fromtimestamp(endtime, tz=UTC).strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
+
         status_marker = "OK" if status == "OK" else status
         id_str = f" ({worker_id})" if worker_id else ""
 
-        line = f"  [{status_marker}] {worker_type}{id_str} by {user} (start={starttime}"
-        if endtime:
-            line += f", end={endtime}"
+        line = f"  [{status_marker}] {worker_type}{id_str} by {user} (start={start_str}"
+        if end_str:
+            line += f", end={end_str}"
         line += ")"
         lines.append(line)
 
