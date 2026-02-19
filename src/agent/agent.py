@@ -34,6 +34,7 @@ from src.agent.tools.truenas import (
     truenas_system_status,
 )
 from src.config import get_settings
+from src.observability.callbacks import MetricsCallbackHandler
 
 # Conditional import — disk_status depends on both prometheus and truenas tools
 try:
@@ -355,7 +356,11 @@ async def invoke_agent(
     Returns:
         The agent's text response.
     """
-    config: RunnableConfig = {"configurable": {"thread_id": session_id}}
+    metrics_cb = MetricsCallbackHandler()
+    config: RunnableConfig = {
+        "configurable": {"thread_id": session_id},
+        "callbacks": [metrics_cb],
+    }
 
     try:
         result: dict[str, Any] = await agent.ainvoke(
@@ -371,8 +376,10 @@ async def invoke_agent(
                 session_id,
                 fresh_id,
             )
+            fresh_cb = MetricsCallbackHandler()
             fresh_config: RunnableConfig = {
                 "configurable": {"thread_id": fresh_id},
+                "callbacks": [fresh_cb],
             }
             result = await agent.ainvoke(
                 {"messages": [HumanMessage(content=message)]},

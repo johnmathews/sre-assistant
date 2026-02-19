@@ -5,17 +5,26 @@ The agent is built once at startup and shared across requests.
 """
 
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel
 
 from src.agent.agent import build_agent, invoke_agent
 from src.agent.retrieval.embeddings import CHROMA_PERSIST_DIR
 from src.config import get_settings
+from src.observability.metrics import (
+    APP_INFO,
+    COMPONENT_HEALTHY,
+    REQUEST_DURATION,
+    REQUESTS_IN_PROGRESS,
+    REQUESTS_TOTAL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +72,9 @@ class HealthResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Build the agent once at startup, tear down on shutdown."""
+    settings = get_settings()
+    APP_INFO.info({"version": "0.1.0", "model": settings.openai_model})
+
     logger.info("Building SRE assistant agent...")
     try:
         agent = build_agent()
@@ -83,10 +95,18 @@ app = FastAPI(title="HomeLab SRE Assistant", lifespan=lifespan)
 # ---------------------------------------------------------------------------
 
 
+@app.get("/metrics")
+async def metrics() -> Response:
+    """Expose Prometheus metrics in exposition format."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.post("/ask", response_model=AskResponse)
 async def ask(request: AskRequest) -> AskResponse:
     """Send a question to the SRE assistant and get a response."""
     session_id = request.session_id or uuid4().hex[:8]
+    REQUESTS_IN_PROGRESS.labels(endpoint="/ask").inc()
+    start = time.monotonic()
 
     try:
         response = await invoke_agent(
@@ -95,8 +115,16 @@ async def ask(request: AskRequest) -> AskResponse:
             session_id=session_id,
         )
     except Exception as exc:
+        REQUESTS_TOTAL.labels(endpoint="/ask", status="error").inc()
+        REQUEST_DURATION.labels(endpoint="/ask").observe(time.monotonic() - start)
         logger.exception("Agent invocation failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        REQUESTS_IN_PROGRESS.labels(endpoint="/ask").dec()
+
+    duration = time.monotonic() - start
+    REQUEST_DURATION.labels(endpoint="/ask").observe(duration)
+    REQUESTS_TOTAL.labels(endpoint="/ask", status="success").inc()
 
     return AskResponse(response=response, session_id=session_id)
 
@@ -237,6 +265,10 @@ async def health() -> HealthResponse:
                 detail=f"{CHROMA_PERSIST_DIR}/ not found — run 'make ingest'",
             )
         )
+
+    # --- Update Prometheus gauges ---
+    for comp in components:
+        COMPONENT_HEALTHY.labels(component=comp.name).set(1.0 if comp.status == "healthy" else 0.0)
 
     # --- Overall status ---
     healthy_count = sum(1 for c in components if c.status == "healthy")

@@ -17,6 +17,7 @@
 | `python-dotenv` | `.env` file parsing (used by pydantic-settings) |
 | `pyyaml` | YAML parsing (runbook frontmatter) |
 | `streamlit` | Web UI for the agent |
+| `prometheus-client` | Self-instrumentation — expose Prometheus metrics at `/metrics` |
 
 ### Development
 

@@ -91,7 +91,7 @@ The project builds a single Docker image that runs as three services:
 | Service      | Port | Description                              |
 | ------------ | ---- | ---------------------------------------- |
 | `sre-ingest` | —    | One-shot: builds the Chroma vector store |
-| `sre-api`    | 8000 | FastAPI backend (`/ask`, `/health`)      |
+| `sre-api`    | 8000 | FastAPI backend (`/ask`, `/health`, `/metrics`) |
 | `sre-ui`     | 8501 | Streamlit web UI                         |
 
 The intended deployment is on a Linux host (VM, LXC, bare metal) on the same LAN as your Prometheus, Grafana, and
@@ -591,6 +591,23 @@ and documentation.
 - Define and display SLO compliance
 - **Deliverable:** A Grafana dashboard showing the AI system's own health
 
+#### Build steps
+
+1. ~~**`prometheus-client` dependency** — Added to `pyproject.toml`.~~
+2. ~~**Metric definitions** — `src/observability/metrics.py`: 10 metrics (Histograms, Counters, Gauges, Info) with SLI
+   bucket definitions and LLM cost pricing.~~
+3. ~~**LangChain callback handler** — `src/observability/callbacks.py`: `MetricsCallbackHandler` captures tool call
+   timing/success, LLM token usage, and cost estimation inside LangGraph's execution loop. No changes to tool
+   definitions required.~~
+4. ~~**Agent wiring** — `MetricsCallbackHandler` injected via `config["callbacks"]` in `invoke_agent()`.~~
+5. ~~**FastAPI instrumentation** — `/metrics` endpoint (Prometheus exposition format), request timing/counting on
+   `/ask`, component health gauges updated on `/health`.~~
+6. ~~**Grafana dashboard** — `dashboards/sre-assistant-sli.json`: SLO overview, latency percentiles, tool call
+   rates/errors, token usage, cost tracking, component health.~~
+
+**Phase 4 complete.** The assistant now tracks its own reliability: request latency, tool success rates, LLM token
+usage, estimated cost, and component health — all exposed as Prometheus metrics and visualized in a Grafana dashboard.
+
 ### Phase 5: Evaluation Framework
 
 - Curate 15–20 test cases with expected behaviors
@@ -639,6 +656,9 @@ homelab-sre-assistant/
 │   │   │   ├── truenas.py        # TrueNAS SCALE tools (5, optional)
 │   │   │   └── loki.py           # Loki log query tools (3, optional)
 │   │   └── retrieval/
+│   ├── observability/
+│   │   ├── metrics.py            # Prometheus metric definitions (10 metrics)
+│   │   └── callbacks.py          # LangChain callback handler for metrics
 │   │       ├── embeddings.py     # Document embedding pipeline
 │   │       └── runbooks.py       # Runbook RAG retrieval
 │   ├── api/
@@ -648,7 +668,9 @@ homelab-sre-assistant/
 ├── scripts/
 │   ├── ingest_runbooks.py        # Rebuild Chroma vector store
 │   └── install-hooks.sh          # Install git pre-push hook
-├── tests/                        # Unit + integration tests (297 passing)
+├── dashboards/
+│   └── sre-assistant-sli.json    # Grafana SLI/SLO dashboard
+├── tests/                        # Unit + integration tests (391 passing)
 ├── docs/                         # Design documentation
 │   ├── architecture.md           # System overview, data flow, deployment
 │   ├── tool-reference.md         # All tools with inputs and examples

@@ -93,6 +93,57 @@ Every external dependency has explicit error handling:
 All tools set `handle_tool_error = True` so errors are returned to the LLM as text (not raised as exceptions), allowing
 the agent to report failures gracefully to the user.
 
+## Self-Instrumentation (Observability)
+
+The assistant tracks its own reliability via Prometheus metrics, exposed at `GET /metrics`.
+
+### Metrics
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `sre_assistant_request_duration_seconds` | Histogram | `endpoint` |
+| `sre_assistant_requests_total` | Counter | `endpoint`, `status` |
+| `sre_assistant_requests_in_progress` | Gauge | `endpoint` |
+| `sre_assistant_tool_call_duration_seconds` | Histogram | `tool_name` |
+| `sre_assistant_tool_calls_total` | Counter | `tool_name`, `status` |
+| `sre_assistant_llm_calls_total` | Counter | `status` |
+| `sre_assistant_llm_token_usage` | Counter | `type` (prompt/completion) |
+| `sre_assistant_llm_estimated_cost_dollars` | Counter | — |
+| `sre_assistant_component_healthy` | Gauge | `component` |
+| `sre_assistant_info` | Info | `version`, `model` |
+
+### Architecture
+
+Three layers:
+
+1. **Metric definitions** (`src/observability/metrics.py`) — module-level `prometheus_client` singletons. All 10 metrics
+   are created once at import time and shared across the process. Histogram buckets are tuned for expected latencies:
+   request duration `[0.5s–60s]`, tool duration `[0.1s–15s]`.
+
+2. **LangChain callback handler** (`src/observability/callbacks.py`) — `MetricsCallbackHandler(BaseCallbackHandler)`
+   transparently captures tool calls and LLM usage inside LangGraph's execution loop. A fresh instance is created per
+   request (request-scoped `_start_times` dict) but writes to the shared module-level metric singletons. Key design
+   choices:
+   - **No tool code changes** — the handler hooks into LangGraph's callback system, so all 22 current tools (and any
+     future tools) are automatically instrumented
+   - **Works inside the agent loop** — LangGraph may call multiple tools in sequence before returning; the callback
+     sees each individual call, unlike FastAPI middleware which only sees the outer request
+   - **Error-resilient** — every callback method is wrapped in `try/except` so metrics never crash a request
+   - **Cost estimation** — matches model name against a pricing table, falls back to conservative defaults for unknown
+     models
+
+3. **FastAPI instrumentation** (`src/api/main.py`) — request-level timing/counting on `/ask` + `/metrics` endpoint +
+   health gauge updates on `/health` + app info set at startup
+
+### Grafana Dashboard
+
+`dashboards/sre-assistant-sli.json` provides a pre-built dashboard with:
+- SLO overview stats (availability, tool success rate, LLM success rate)
+- Request latency percentiles (p50/p90/p95/p99)
+- Tool call rates and errors by tool name
+- LLM token usage and estimated cost
+- Component health status
+
 ## Configuration
 
 Settings are loaded from environment variables via `pydantic-settings`. The `Settings` class in `src/config.py` defines

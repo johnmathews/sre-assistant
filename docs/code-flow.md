@@ -90,6 +90,118 @@ get_settings() -> Settings()  [cached via @lru_cache]
 Each tool module imports `get_settings` independently. In tests, `conftest.py::mock_settings` patches `get_settings`
 at every import site.
 
+## Metrics Flow
+
+Self-instrumentation metrics are collected at two levels:
+
+### Request level (FastAPI)
+
+```
+POST /ask
+  -> REQUESTS_IN_PROGRESS.inc()
+  -> start = time.monotonic()
+  -> invoke_agent(...)
+  -> REQUEST_DURATION.observe(elapsed)
+  -> REQUESTS_TOTAL.labels(status="success"|"error").inc()
+  -> REQUESTS_IN_PROGRESS.dec()  (in finally block — always runs)
+```
+
+On error, both the error counter and duration histogram are recorded _before_ the HTTPException is raised, so failed
+requests are fully instrumented.
+
+### Agent level (LangChain callback handler)
+
+The `MetricsCallbackHandler` (`src/observability/callbacks.py`) captures tool-call and LLM metrics from _inside_
+LangGraph's execution loop.
+
+#### Why callbacks instead of decorating tools?
+
+LangGraph runs an internal agentic loop: the LLM decides to call a tool → the tool runs → the result is fed back →
+the LLM decides whether to call another tool or respond. This loop is invisible to FastAPI middleware, which only sees
+the outer HTTP request. Three alternative approaches were considered:
+
+1. **Decorating each tool function** — requires modifying every `@tool` definition and remembering to decorate new
+   tools. Fragile and repetitive.
+2. **FastAPI middleware** — can time the overall request but cannot see individual tool calls or LLM invocations inside
+   the agent loop.
+3. **LangChain callbacks** (chosen) — `BaseCallbackHandler` is invoked automatically by LangGraph at each lifecycle
+   event. Zero changes to tool code. New tools are automatically instrumented. Works inside the agent's internal loop.
+
+#### Lifecycle
+
+A fresh `MetricsCallbackHandler` instance is created per request in `invoke_agent()` and injected via
+`config["callbacks"]`. The handler instance is request-scoped (its `_start_times` dict is private), but all
+counter/histogram writes target the module-level Prometheus singletons in `metrics.py`.
+
+```
+invoke_agent(agent, message, session_id)
+  -> metrics_cb = MetricsCallbackHandler()
+  -> config = {"configurable": {"thread_id": session_id}, "callbacks": [metrics_cb]}
+  -> agent.ainvoke({"messages": [...]}, config)
+```
+
+During execution, LangGraph calls the handler at these points:
+
+**Tool lifecycle:**
+```
+on_tool_start(serialized, input_str, run_id)
+  -> stores run_id → (time.monotonic(), tool_name) in _start_times dict
+
+on_tool_end(output, run_id)
+  -> pops run_id from _start_times
+  -> duration = now - start_time
+  -> TOOL_CALL_DURATION.labels(tool_name).observe(duration)
+  -> TOOL_CALLS_TOTAL.labels(tool_name, status="success").inc()
+
+on_tool_error(error, run_id)
+  -> pops run_id from _start_times
+  -> TOOL_CALL_DURATION.labels(tool_name).observe(duration)
+  -> TOOL_CALLS_TOTAL.labels(tool_name, status="error").inc()
+```
+
+**LLM lifecycle:**
+```
+on_llm_end(response, run_id)
+  -> LLM_CALLS_TOTAL.labels(status="success").inc()
+  -> extracts token_usage from response.llm_output (if present)
+  -> LLM_TOKEN_USAGE.labels(type="prompt").inc(prompt_tokens)
+  -> LLM_TOKEN_USAGE.labels(type="completion").inc(completion_tokens)
+  -> looks up model pricing (falls back to gpt-4o rates for unknown models)
+  -> LLM_ESTIMATED_COST.inc(calculated_cost)
+
+on_llm_error(error, run_id)
+  -> LLM_CALLS_TOTAL.labels(status="error").inc()
+```
+
+#### Error resilience
+
+Every callback method is wrapped in `try/except`. Metrics collection must never crash a request — if a callback fails
+(e.g., unexpected `llm_output` format, missing `token_usage` key), it logs at DEBUG level and continues. This is
+critical because `llm_output` format varies across LLM providers and can change between library versions.
+
+#### Cost estimation
+
+The handler matches `model_name` from `llm_output` against a prefix-based pricing table:
+
+| Model prefix | Prompt (per 1M tokens) | Completion (per 1M tokens) |
+|-------------|------------------------|---------------------------|
+| `gpt-4o-mini` | $0.15 | $0.60 |
+| `gpt-4o` | $2.50 | $10.00 |
+| `gpt-4-turbo` | $10.00 | $30.00 |
+
+Unknown models fall back to `gpt-4o` pricing (the conservative default). The total cost counter is monotonically
+increasing — Prometheus `rate()` computes cost per time window for the dashboard.
+
+### Exposition
+
+`GET /metrics` returns all metrics in Prometheus exposition format via `prometheus_client.generate_latest()`.
+
+### Health gauge updates
+
+`GET /health` updates the `sre_assistant_component_healthy` gauge for each component after checking its status.
+This means the gauge reflects the last health check result. Prometheus scrapes `/metrics` on its own schedule,
+so the gauge value between health checks remains at the last-known state.
+
 ## Health Check Flow
 
 `GET /health` checks each dependency:
