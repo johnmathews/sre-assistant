@@ -259,6 +259,21 @@ Settings are loaded from environment variables via `pydantic-settings`. The `Set
 all configuration with sensible defaults. Optional integrations (TrueNAS, Loki, Proxmox VE, PBS) default to empty
 strings, which disables their tools.
 
+### Conversation History Persistence
+
+When `CONVERSATION_HISTORY_DIR` is set, the full conversation for each session — including all tool calls, tool
+responses, and intermediate messages — is saved as a JSON file after each agent invocation. This is designed for
+debugging and improving the agent, not for runtime use.
+
+- **File format:** `{session_id}.json` with metadata (timestamps, turn count, model) and the full LangChain message
+  list serialized via `messages_to_dict()`
+- **Atomic writes:** uses `tempfile.mkstemp()` + `os.replace()` to avoid partial files on crash
+- **Error-safe:** all errors are logged and swallowed — conversation persistence never crashes a request
+- **Preserves `created_at`:** on updates to an existing session file, the original creation timestamp is retained
+
+In Docker, the `conversation_data` volume is mounted at `/app/conversations`. Production Ansible compose bind-mounts
+`/srv/infra/sre-agent/conversations` to make the files accessible from the host.
+
 ## Deployment Plan
 
 ### Target Environment
@@ -294,7 +309,7 @@ docker-compose.yml
   +-- sre-api (FastAPI backend)
   |     CMD: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
   |     Port: 8000
-  |     Volumes: chroma_data:/app/.chroma_db
+  |     Volumes: chroma_data:/app/.chroma_db, conversation_data:/app/conversations
   |     restart: unless-stopped
   |
   +-- sre-ui (Streamlit frontend)

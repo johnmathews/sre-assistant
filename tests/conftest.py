@@ -66,6 +66,8 @@ def mock_settings() -> Generator[Any]:
             # Report schedule
             "report_schedule_cron": "",
             "report_lookback_days": 7,
+            # Conversation history
+            "conversation_history_dir": "",
         },
     )()
     with (

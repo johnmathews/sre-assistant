@@ -125,6 +125,7 @@ volume:
     restart: unless-stopped
     volumes:
       - chroma_data:/app/.chroma_db
+      - conversation_data:/app/conversations
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
       interval: 30s
@@ -147,6 +148,7 @@ volume:
 # Add to your existing volumes section:
 volumes:
   chroma_data:
+  conversation_data:
 ```
 
 The `sre-ingest` service is under the `setup` profile — it won't run during normal `docker compose up`. You run it
@@ -188,6 +190,7 @@ Create a `.env` file on the deployment host. See `.env.example` for the full lis
 | `PBS_API_TOKEN`       | PBS API auth                |
 | `LOKI_URL`            | Loki log tools (3 tools)    |
 | `EXTRA_DOCS_DIRS`     | Additional RAG doc directories (comma-separated absolute paths) |
+| `CONVERSATION_HISTORY_DIR` | Directory for saving conversation JSON files (debugging/analysis) |
 
 All URLs must point to addresses reachable from inside the Docker container — see [Networking](#networking).
 
@@ -442,7 +445,12 @@ The agent maintains conversation context within a session so users can have natu
 - "What about memory on the same machine?" → (agent understands "same machine" = Jellyfin VM)
 - "Was there a change before that happened?" → (agent correlates with the original alert)
 
-Implementation uses LangChain's built-in message history with a session-scoped conversation buffer.
+Implementation uses LangChain's built-in message history with a session-scoped conversation buffer. In-memory history
+is lost on process restart.
+
+When `CONVERSATION_HISTORY_DIR` is set, the full conversation (including all tool calls and responses) is persisted as
+JSON files for debugging and agent improvement. See [docs/architecture.md](docs/architecture.md#conversation-history-persistence)
+for details.
 
 ---
 
@@ -681,6 +689,7 @@ homelab-sre-assistant/
 │   ├── cli.py                    # Interactive CLI REPL
 │   ├── agent/
 │   │   ├── agent.py              # LangChain agent setup
+│   │   ├── history.py            # Conversation history persistence to JSON
 │   │   ├── tools/
 │   │   │   ├── prometheus.py     # Prometheus query tools (3)
 │   │   │   ├── grafana_alerts.py # Grafana alerting tools (2)
@@ -715,7 +724,7 @@ homelab-sre-assistant/
 │   └── install-hooks.sh          # Install git pre-push hook
 ├── dashboards/
 │   └── sre-assistant-sli.json    # Grafana SLI/SLO dashboard
-├── tests/                        # Unit + integration tests (462 passing)
+├── tests/                        # Unit + integration tests (473 passing)
 ├── docs/                         # Design documentation
 │   ├── architecture.md           # System overview, data flow, deployment
 │   ├── tool-reference.md         # All tools with inputs and examples

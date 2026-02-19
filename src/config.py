@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # Extra document directories for RAG ingestion (comma-separated absolute paths)
     extra_docs_dirs: str = ""
 
+    # Conversation history persistence (optional — empty = disabled)
+    conversation_history_dir: str = ""
+
     # Proxmox Backup Server API (optional — empty string means not configured)
     pbs_url: str = ""
     pbs_api_token: str = ""

@@ -12,6 +12,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import SecretStr
 
+from src.agent.history import save_conversation
 from src.agent.tools.grafana_alerts import grafana_get_alert_rules, grafana_get_alerts
 from src.agent.tools.loki import loki_correlate_changes, loki_list_label_values, loki_query_logs
 from src.agent.tools.pbs import pbs_datastore_status, pbs_list_backups, pbs_list_tasks
@@ -356,6 +357,9 @@ async def invoke_agent(
     Returns:
         The agent's text response.
     """
+    settings = get_settings()
+    effective_session_id = session_id
+
     metrics_cb = MetricsCallbackHandler()
     config: RunnableConfig = {
         "configurable": {"thread_id": session_id},
@@ -371,6 +375,7 @@ async def invoke_agent(
         if _is_tool_call_pairing_error(exc):
             # Session history is corrupted — retry with a fresh thread to unblock
             fresh_id = f"{session_id}-{uuid4().hex[:6]}"
+            effective_session_id = fresh_id
             logger.warning(
                 "Session '%s' has corrupted tool-call history; retrying with fresh session '%s'",
                 session_id,
@@ -390,6 +395,16 @@ async def invoke_agent(
 
     # Extract the last AI message from the result
     messages: list[Any] = result.get("messages", [])
+
+    # Persist full conversation history if configured
+    if settings.conversation_history_dir:
+        save_conversation(
+            settings.conversation_history_dir,
+            effective_session_id,
+            messages,
+            settings.openai_model,
+        )
+
     for msg in reversed(messages):
         if isinstance(msg, AIMessage) and isinstance(msg.content, str) and msg.content:
             return msg.content

@@ -50,7 +50,26 @@ async def tool_name(param: str) -> str:
 Tool results are formatted into human-readable strings (not raw JSON) so the LLM can reason about them effectively.
 The LLM composes a final answer from tool results and its knowledge.
 
-### 6. Response Return
+### 6. Conversation Persistence
+
+After `ainvoke()` returns, if `CONVERSATION_HISTORY_DIR` is configured, the full message list (including tool calls
+and tool responses) is serialized to a JSON file:
+
+```
+result = agent.ainvoke(...)
+messages = result["messages"]
+  -> save_conversation(history_dir, session_id, messages, model)
+       -> filter to BaseMessage instances
+       -> messages_to_dict() serialization
+       -> preserve created_at from existing file (if any)
+       -> atomic write: tempfile.mkstemp() + os.replace()
+       -> errors logged and swallowed (never crashes the request)
+```
+
+If the agent entered the error recovery path (corrupted tool-call history), the fresh session ID is used for the
+saved file, not the original session ID.
+
+### 7. Response Return
 
 ```
 agent.ainvoke() returns {"messages": [...]}
