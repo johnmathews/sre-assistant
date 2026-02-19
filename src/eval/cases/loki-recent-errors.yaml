@@ -1,0 +1,50 @@
+id: loki-recent-errors
+description: "Agent should query Loki for recent error logs"
+question: "Are there any recent errors in the logs?"
+
+required_services: [loki]
+
+expected_tools:
+  must_call: [loki_query_logs]
+  may_call: [loki_list_label_values, loki_correlate_changes]
+  must_not_call: []
+
+mocks:
+  - url: "http://loki.test:3100/loki/api/v1/query_range"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "streams"
+        result:
+          - stream:
+              hostname: "media"
+              service_name: "traefik"
+              container: "traefik"
+              detected_level: "error"
+            values:
+              - ["1705312800000000000", "level=error msg=\"502 Bad Gateway\" upstream=jellyfin:8096"]
+              - ["1705312700000000000", "level=error msg=\"connection refused\" upstream=jellyfin:8096"]
+  - url: "http://loki.test:3100/loki/api/v1/labels"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data: ["hostname", "service_name", "container", "detected_level"]
+  - url: "http://loki.test:3100/loki/api/v1/label/hostname/values"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data: ["media", "infra", "jellyfin"]
+  - url: "http://loki.test:3100/ready"
+    method: GET
+    status: 200
+    body: "ready"
+
+rubric: |
+  The answer should:
+  1. Report the errors found (502 Bad Gateway, connection refused)
+  2. Identify the service (traefik) and/or upstream (jellyfin)
+  3. Provide context about what the errors mean

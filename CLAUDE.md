@@ -61,6 +61,7 @@ make check         # lint + typecheck + test in one command
 make serve         # FastAPI dev server on :8000
 make ingest        # Rebuild Chroma vector store from runbooks/
 make chat          # Interactive CLI REPL for the agent
+make report        # Generate weekly reliability report to stdout
 uv run pytest tests/test_foo.py::test_bar  # Run a single test
 ```
 
@@ -98,8 +99,9 @@ The project is built incrementally. Each phase produces a working, demonstrable 
   runbooks), memory
 - `src/api/` — FastAPI application
 - `src/ui/` — Streamlit frontend
-- `src/eval/` — Evaluation test cases (YAML) and runner (planned)
-- `src/observability/` — Prometheus metric exports, cost/token tracking (planned)
+- `src/eval/` — Evaluation test cases (YAML) and runner
+- `src/observability/` — Prometheus metric definitions, LangChain callback handler for cost/token tracking
+- `src/report/` — Weekly reliability report generator, email delivery, APScheduler cron scheduling
 - `docs/` — Design documentation (architecture, tool reference, code flow, dependencies)
 - `runbooks/` — Operational runbooks (markdown)
 - `ansible/` — Symlink/submodule to ansible home-server project

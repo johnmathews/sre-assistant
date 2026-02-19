@@ -83,12 +83,12 @@ Conditional (config-dependent):
 get_settings() -> Settings()  [cached via @lru_cache]
   1. Reads .env file
   2. Validates required fields (openai_api_key, prometheus_url, grafana_url, grafana_service_account_token)
-  3. Optional fields default to empty string (truenas_url, loki_url, proxmox_url, pbs_url, etc.)
+  3. Optional fields default to empty string (truenas_url, loki_url, proxmox_url, pbs_url, smtp_host, etc.)
   4. Returns singleton Settings instance
 ```
 
 Each tool module imports `get_settings` independently. In tests, `conftest.py::mock_settings` patches `get_settings`
-at every import site.
+at every import site (14 patch sites as of Phase 6).
 
 ## Metrics Flow
 
@@ -202,6 +202,47 @@ increasing — Prometheus `rate()` computes cost per time window for the dashboa
 This means the gauge reflects the last health check result. Prometheus scrapes `/metrics` on its own schedule,
 so the gauge value between health checks remains at the last-known state.
 
+## Report Generation Flow
+
+The weekly report is generated via direct API queries (not the LangChain agent) for determinism and cost efficiency.
+
+### On-demand (`POST /report`)
+
+```
+POST /report {lookback_days: 7}
+  -> generate_report(lookback_days)
+       -> collect_report_data(lookback_days)
+            -> asyncio.gather(
+                 _collect_alert_summary(),   # Grafana API
+                 _collect_slo_status(),      # Prometheus queries
+                 _collect_tool_usage(),      # Prometheus queries
+                 _collect_cost_data(),       # Prometheus queries
+                 _collect_loki_errors(),     # Loki API (if configured)
+               )
+       -> _generate_narrative(collected_data)  # Single LLM call
+       -> format_report_markdown(report_data)  # Pure function
+  -> send_report_email(markdown)  (if SMTP configured)
+  -> REPORTS_TOTAL.labels(trigger="manual", status="success").inc()
+  -> REPORT_DURATION.observe(elapsed)
+  -> return ReportResponse(report=markdown, emailed=bool, timestamp=iso)
+```
+
+### Scheduled (APScheduler)
+
+```
+start_scheduler()  (called in FastAPI lifespan)
+  -> CronTrigger.from_crontab(settings.report_schedule_cron)
+  -> AsyncIOScheduler.add_job(_scheduled_report_job)
+  -> _scheduled_report_job()  (fires on cron schedule)
+       -> generate_report()
+       -> send_report_email()  (if configured)
+       -> REPORTS_TOTAL.labels(trigger="scheduled", status=...).inc()
+```
+
+### Collector Error Handling
+
+Each collector runs independently. If a collector raises (e.g., Prometheus is down), `asyncio.gather(return_exceptions=True)` catches it and stores `None` for that section. The report is always produced, with "data unavailable" placeholders for failed sections.
+
 ## Health Check Flow
 
 `GET /health` checks each dependency:
@@ -215,3 +256,37 @@ so the gauge value between health checks remains at the last-known state.
 7. Vector store — checks if `chroma_db/` directory exists
 
 Returns overall status: "healthy" (all OK), "degraded" (some failing), "unhealthy" (all failing).
+
+## Eval Framework Flow
+
+The eval framework (`make eval`) tests the agent's end-to-end reasoning with real LLM calls against mocked
+infrastructure. It runs separately from `make test` because it costs tokens.
+
+```
+scripts/run_eval.py
+  -> load_eval_cases(case_ids)           # YAML files from src/eval/cases/
+  -> for each case:
+       run_eval_case(case, api_key, model)
+         1. Build FakeSettings (real OpenAI key + fake infra URLs)
+         2. Patch get_settings at all 11 import sites
+         3. Disable runbook_search (no vector store needed)
+         4. Set up respx mocks from case.mocks
+         5. build_agent() + agent.ainvoke() with full message history
+         6. Extract tool names from AIMessage.tool_calls
+         7. Score tools: missing = must_call - called, forbidden = must_not_call ∩ called
+         8. Judge answer: send (question, answer, rubric) to gpt-4o-mini
+         9. Return EvalResult(tool_score, judge_score, answer)
+       print_case_result(result)
+  -> print_summary(results)
+  -> exit(0 if all passed else 1)
+```
+
+### Why `agent.ainvoke()` not `invoke_agent()`?
+
+`invoke_agent()` discards the message list and returns only the final text. The eval runner needs the full message
+list to extract `AIMessage.tool_calls` for deterministic tool scoring. It reimplements the 3-line answer extraction.
+
+### Why HTTP-level mocking (not tool-function mocking)?
+
+HTTP-level mocking via respx tests the full tool implementation — URL construction, headers, query parameters, response
+parsing, error formatting. Function-level mocking would only test whether the LLM picks the right tool name.

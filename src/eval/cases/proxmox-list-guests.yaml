@@ -1,0 +1,47 @@
+id: proxmox-list-guests
+description: "Agent should list Proxmox VMs and containers"
+question: "What VMs and containers are running on the Proxmox node?"
+
+required_services: [proxmox]
+
+expected_tools:
+  must_call: [proxmox_list_guests]
+  may_call: [proxmox_node_status]
+  must_not_call: []
+
+mocks:
+  - url: "https://proxmox.test:8006/api2/json/cluster/resources"
+    method: GET
+    status: 200
+    body:
+      data:
+        - vmid: 100
+          name: "infra"
+          type: "lxc"
+          status: "running"
+          cpu: 0.05
+          maxcpu: 4
+          mem: 1073741824
+          maxmem: 4294967296
+        - vmid: 105
+          name: "jellyfin"
+          type: "qemu"
+          status: "running"
+          cpu: 0.42
+          maxcpu: 8
+          mem: 8589934592
+          maxmem: 17179869184
+        - vmid: 110
+          name: "media"
+          type: "lxc"
+          status: "running"
+          cpu: 0.12
+          maxcpu: 4
+          mem: 2147483648
+          maxmem: 8589934592
+
+rubric: |
+  The answer should:
+  1. List the VMs/containers (infra, jellyfin, media)
+  2. Indicate their types (LXC vs QEMU/VM)
+  3. Show their running status

@@ -1,4 +1,4 @@
-.PHONY: install dev lint format typecheck test test-e2e check serve ingest chat ui hooks docker-build docker-up docker-down
+.PHONY: install dev lint format typecheck test test-e2e check serve ingest chat ui hooks eval report docker-build docker-up docker-down
 
 install:
 	uv sync
@@ -36,6 +36,12 @@ chat:
 
 ui:
 	uv run streamlit run src/ui/app.py --server.port 8501
+
+eval:
+	uv run python -m scripts.run_eval $(ARGS)
+
+report:
+	uv run python -m scripts.run_report
 
 hooks:
 	bash scripts/install-hooks.sh

@@ -29,6 +29,17 @@ class Settings(BaseSettings):
     # Loki API (optional — empty string means not configured)
     loki_url: str = ""
 
+    # SMTP / Email (optional — empty = email disabled)
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    report_recipient_email: str = ""
+
+    # Report schedule (optional — empty = scheduler disabled)
+    report_schedule_cron: str = ""  # e.g. "0 8 * * 1" (Monday 8am)
+    report_lookback_days: int = 7
+
     # Extra document directories for RAG ingestion (comma-separated absolute paths)
     extra_docs_dirs: str = ""
 

@@ -1,0 +1,52 @@
+id: prom-disk-pressure
+description: "Agent should check disk usage across VMs"
+question: "Is any VM running low on disk space?"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_instant_query]
+  may_call: [prometheus_search_metrics]
+  must_not_call: []
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result:
+          - metric:
+              hostname: "infra"
+              mountpoint: "/"
+            value: [1705312800, "0.72"]
+          - metric:
+              hostname: "jellyfin"
+              mountpoint: "/"
+            value: [1705312800, "0.91"]
+          - metric:
+              hostname: "media"
+              mountpoint: "/"
+            value: [1705312800, "0.45"]
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        node_filesystem_avail_bytes:
+          - type: "gauge"
+            help: "Filesystem available bytes"
+            unit: ""
+        node_filesystem_size_bytes:
+          - type: "gauge"
+            help: "Filesystem size bytes"
+            unit: ""
+
+rubric: |
+  The answer should:
+  1. Identify jellyfin as the VM with critically high disk usage (~91%)
+  2. Report other VMs' disk usage for context
+  3. Flag the jellyfin disk situation as concerning

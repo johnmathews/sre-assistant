@@ -111,12 +111,14 @@ The assistant tracks its own reliability via Prometheus metrics, exposed at `GET
 | `sre_assistant_llm_estimated_cost_dollars` | Counter | — |
 | `sre_assistant_component_healthy` | Gauge | `component` |
 | `sre_assistant_info` | Info | `version`, `model` |
+| `sre_assistant_reports_total` | Counter | `trigger` (scheduled/manual), `status` (success/error) |
+| `sre_assistant_report_duration_seconds` | Histogram | — |
 
 ### Architecture
 
 Three layers:
 
-1. **Metric definitions** (`src/observability/metrics.py`) — module-level `prometheus_client` singletons. All 10 metrics
+1. **Metric definitions** (`src/observability/metrics.py`) — module-level `prometheus_client` singletons. All 12 metrics
    are created once at import time and shared across the process. Histogram buckets are tuned for expected latencies:
    request duration `[0.5s–60s]`, tool duration `[0.1s–15s]`.
 
@@ -132,8 +134,8 @@ Three layers:
    - **Cost estimation** — matches model name against a pricing table, falls back to conservative defaults for unknown
      models
 
-3. **FastAPI instrumentation** (`src/api/main.py`) — request-level timing/counting on `/ask` + `/metrics` endpoint +
-   health gauge updates on `/health` + app info set at startup
+3. **FastAPI instrumentation** (`src/api/main.py`) — request-level timing/counting on `/ask` and `/report` +
+   `/metrics` endpoint + health gauge updates on `/health` + report metrics on `/report` + app info set at startup
 
 ### Grafana Dashboard
 
@@ -143,6 +145,113 @@ Three layers:
 - Tool call rates and errors by tool name
 - LLM token usage and estimated cost
 - Component health status
+
+## Evaluation Framework
+
+The eval framework tests the agent's end-to-end reasoning: does it pick the right tools, and does it produce good
+answers? This is separate from unit/integration tests which mock the LLM entirely.
+
+### How It Works
+
+```
+YAML eval case
+  → loader.py parses into EvalCase model
+  → runner.py patches settings (real OpenAI key + fake infra URLs)
+  → runner.py sets up respx mocks from case definition
+  → runner.py calls build_agent() + agent.ainvoke() directly
+  → runner.py extracts tool calls from AIMessage.tool_calls
+  → runner.py scores tool selection deterministically (must_call / must_not_call)
+  → judge.py sends (question, answer, rubric) to grading LLM
+  → report.py prints per-case results + summary
+```
+
+### Two Scoring Dimensions
+
+1. **Tool selection** (deterministic) — did the agent call the expected tools? Checks `must_call` (required tools) and
+   `must_not_call` (forbidden tools). `may_call` tools are allowed but not required.
+2. **Answer quality** (LLM-as-judge) — a grading LLM (`gpt-4o-mini`, temperature 0) scores the answer against a
+   human-written rubric. Returns pass/fail with explanation.
+
+### Design Choices
+
+- **HTTP-level mocking** (respx) tests the full tool implementation — URL construction, headers, response parsing.
+  Function-level mocking would only test tool selection.
+- **Real LLM + mocked infrastructure** — the agent calls OpenAI for reasoning but all infrastructure APIs are mocked.
+  This costs tokens but validates actual agent behavior.
+- **`agent.ainvoke()` not `invoke_agent()`** — we need the full message list to extract `AIMessage.tool_calls`.
+  `invoke_agent()` discards messages and returns only text.
+- **Runbook search disabled** — the vector store requires on-disk data. Eval focuses on tool selection and answer
+  quality; RAG retrieval is tested separately.
+
+### Running
+
+```bash
+make eval                                          # Run all 17 cases (costs tokens)
+make eval ARGS="--case alert-explain-high-cpu"     # Single case
+uv run pytest tests/test_eval.py -v                # Unit tests (free)
+uv run pytest tests/test_eval_integration.py -v    # Integration tests (free)
+```
+
+### Eval Cases
+
+17 cases across 7 categories: alerts (4), Prometheus (5), Proxmox (2), PBS (1), TrueNAS (2), Loki (2), cross-tool (1).
+Cases are YAML files in `src/eval/cases/`.
+
+## Weekly Reliability Report
+
+Phase 6 adds a scheduled weekly report that summarizes alerts, SLO status, tool usage, costs, and log errors.
+
+### Design: Direct Query + LLM Summarization
+
+The report module queries APIs **directly** (not through the LangChain agent) because:
+
+- **Deterministic** — every section is always populated (partial data on failure, never empty)
+- **Cheaper** — one LLM call for the narrative summary vs many agent tool calls
+- **Faster and testable** — structured data collection with a single narrative generation step
+
+### Data Flow
+
+```
+collect_report_data(lookback_days)
+  |
+  +-- _collect_alert_summary()      → Grafana API (rules + active alerts)
+  +-- _collect_slo_status()         → Prometheus (p95, tool success, LLM errors, availability)
+  +-- _collect_tool_usage()         → Prometheus (tool calls by name, errors)
+  +-- _collect_cost_data()          → Prometheus (tokens, estimated cost)
+  +-- _collect_loki_errors()        → Loki (errors by service, if configured)
+  |
+  v
+_generate_narrative(collected_data)  → Single LLM call for executive summary
+  |
+  v
+format_report_markdown(report_data)  → Markdown with 6 sections
+```
+
+All collectors run concurrently via `asyncio.gather()`, each wrapped in try/except. A collector failure produces
+`None` for that section — the report is always generated, even with partial data.
+
+### Report Sections
+
+1. **Executive Summary** — LLM-generated 2-3 paragraph narrative
+2. **Alert Summary** — total rules, active alerts, severity breakdown
+3. **SLO Status** — table with target/actual/pass-fail for each SLI
+4. **Tool Usage** — table with per-tool call counts and error rates
+5. **Cost & Token Usage** — prompt/completion tokens and estimated USD
+6. **Log Error Summary** — error counts by service (if Loki configured)
+
+### Delivery
+
+- **On-demand** — `POST /report` endpoint returns markdown + optional email delivery
+- **Scheduled** — APScheduler `AsyncIOScheduler` with configurable cron expression (`REPORT_SCHEDULE_CRON`)
+- **CLI** — `make report` prints to stdout
+- **Email** — plain-text markdown via Gmail SMTP with STARTTLS (if `SMTP_*` settings configured)
+
+### Metrics
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `sre_assistant_reports_total` | Counter | `trigger` (scheduled/manual), `status` (success/error) |
+| `sre_assistant_report_duration_seconds` | Histogram | — |
 
 ## Configuration
 

@@ -58,12 +58,16 @@ make chat
 
 # Or start the FastAPI server
 make serve
-# POST /ask  — send questions to the agent
-# GET /health — check infrastructure component status
+# POST /ask     — send questions to the agent
+# POST /report  — generate a weekly reliability report
+# GET /health   — check infrastructure component status
 
 # Start the Streamlit web UI (requires API server running)
 make ui
 # Opens browser at http://localhost:8501
+
+# Generate a weekly reliability report to stdout
+make report
 
 # Run the full check suite (lint + typecheck + tests)
 make check
@@ -91,7 +95,7 @@ The project builds a single Docker image that runs as three services:
 | Service      | Port | Description                              |
 | ------------ | ---- | ---------------------------------------- |
 | `sre-ingest` | —    | One-shot: builds the Chroma vector store |
-| `sre-api`    | 8000 | FastAPI backend (`/ask`, `/health`, `/metrics`) |
+| `sre-api`    | 8000 | FastAPI backend (`/ask`, `/health`, `/metrics`, `/report`) |
 | `sre-ui`     | 8501 | Streamlit web UI                         |
 
 The intended deployment is on a Linux host (VM, LXC, bare metal) on the same LAN as your Prometheus, Grafana, and
@@ -376,6 +380,7 @@ The assistant has **up to 22 tools** across 8 categories, depending on which int
 - Root cause analysis (RCA) drafts
 - Incident summaries
 - Suggested remediation steps based on runbooks
+- Weekly reliability reports (alerts, SLO status, tool usage, costs, log errors) — on demand via `POST /report` or scheduled via cron
 
 ---
 
@@ -455,52 +460,38 @@ Implementation uses LangChain's built-in message history with a session-scoped c
 | Logs            | Loki                         |
 | Infrastructure  | Proxmox, Ansible             |
 | Alerting        | Grafana unified alerting     |
+| Scheduling      | APScheduler                  |
 
 ---
 
-## Roadmap
+## Self-Observability
 
-Features planned for upcoming phases:
+The assistant tracks its own reliability via 12 Prometheus metrics exposed at `GET /metrics`, visualized in a dedicated
+Grafana dashboard (`dashboards/sre-assistant-sli.json`).
 
-### SLI/SLO Dashboard (Phase 4)
+| SLI                          | Target SLO  | How It's Measured                     |
+| ---------------------------- | ----------- | ------------------------------------- |
+| Agent response latency (p95) | < 15s       | `sre_assistant_request_duration_seconds` histogram |
+| Tool call success rate       | > 99%       | `sre_assistant_tool_calls_total` by status |
+| LLM API error rate           | < 1%        | `sre_assistant_llm_calls_total` by status |
+| End-to-end availability      | > 99.5%     | `sre_assistant_component_healthy` gauge |
 
-Self-instrumentation with Prometheus metrics. The assistant will track its own reliability:
+Per-query cost tracking: token usage, estimated cost, tool call count — all exported to Prometheus and aggregated
+in the Grafana dashboard.
 
-| SLI                          | Target SLO              | How It's Measured                     |
-| ---------------------------- | ----------------------- | ------------------------------------- |
-| Agent response latency (p95) | < 15 seconds            | Timer around full agent execution     |
-| Tool call success rate       | > 99%                   | Success/failure counts per tool       |
-| RAG retrieval relevance      | > 80% relevant in top-3 | Manual evaluation + automated scoring |
-| End-to-end availability      | > 99.5%                 | Health check endpoint on FastAPI      |
-| LLM API error rate           | < 1%                    | HTTP status tracking on API calls     |
+## Weekly Reliability Report
 
-These metrics will be exported to Prometheus and visualized in a dedicated Grafana dashboard.
+Automated weekly summarization of alerts, SLO status, tool usage, costs, and log errors. Generated via direct API
+queries (not agent-driven) with a single LLM call for a narrative summary.
 
-### Cost Awareness (Phase 4)
+- **On demand:** `POST /report` or `make report`
+- **Scheduled:** configurable cron via `REPORT_SCHEDULE_CRON` (APScheduler)
+- **Email delivery:** plain-text markdown via Gmail SMTP (if `SMTP_*` configured)
 
-Per-query tracking of token usage, estimated cost, tool call count, and latency breakdown — surfaced in the UI and
-aggregated in the Grafana dashboard.
+## Evaluation Framework
 
-### Evaluation Framework (Phase 5)
-
-15–20 curated question/expected-answer pairs that validate the agent's reasoning:
-
-| #   | Scenario            | Input                                          | Expected Behavior                                                                           |
-| --- | ------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| 1   | High CPU alert      | "Why is CPU high on node-3?"                   | Queries Prometheus for CPU metrics on node-3, identifies top process, checks recent changes |
-| 2   | Disk pressure       | "Is any VM running low on disk?"               | Queries disk usage across all nodes, flags any above 85%                                    |
-| 3   | Recent changes      | "What changed in the last 24h?"                | Checks service logs, Prometheus annotations, Alertmanager history                           |
-| 4   | Runbook lookup      | "How do I restart the DNS stack?"              | Retrieves relevant runbook via RAG, presents steps                                          |
-| 5   | Alert summary       | "Summarize active alerts"                      | Fetches all firing alerts, groups by severity, explains each                                |
-| 6   | Correlation         | "Did anything change before this alert fired?" | Cross-references alert start time with log data                                             |
-| 7   | Unknown service     | "What's the status of a-nonexistent-service?"  | Gracefully reports no data found, suggests checking the name                                |
-| 8   | Ambiguous query     | "Things seem slow"                             | Asks clarifying questions or checks broad performance metrics                               |
-| 9   | LLM API failure     | Agent runs with LLM unavailable                | Returns graceful error, suggests manual check                                               |
-| 10  | No relevant runbook | "How do I fix error XYZ?"                      | States no runbook found, suggests general troubleshooting steps                             |
-
-### Weekly Reliability Report (Phase 6)
-
-Scheduled summarization of the past week's alerts, changes, and SLO status — output as a markdown report.
+17 curated eval cases across 7 categories validate the agent's tool selection and answer quality. Uses real LLM
+calls against mocked infrastructure APIs. Run with `make eval`.
 
 ---
 
@@ -615,11 +606,53 @@ usage, estimated cost, and component health — all exposed as Prometheus metric
 - Integrate as a script that can run on demand or in CI
 - **Deliverable:** `make eval` produces a pass/fail report
 
+#### Build steps
+
+1. ~~**Data models** — `src/eval/models.py`: Pydantic models for eval cases (EvalCase, MockResponse, ExpectedTools),
+   scores (ToolScore, JudgeScore), and results (EvalResult).~~
+2. ~~**YAML loader** — `src/eval/loader.py`: loads and validates eval cases from `src/eval/cases/*.yaml`.~~
+3. ~~**Core runner** — `src/eval/runner.py`: patches settings with real OpenAI key + fake infra URLs, sets up respx
+   HTTP mocks, invokes `build_agent()` + `agent.ainvoke()`, extracts tool calls from `AIMessage.tool_calls`, scores
+   tool selection deterministically (must_call / must_not_call).~~
+4. ~~**LLM-as-judge** — `src/eval/judge.py`: sends (question, answer, rubric) to `gpt-4o-mini` for quality scoring.
+   Returns JSON pass/fail with explanation.~~
+5. ~~**Report formatting** — `src/eval/report.py`: per-case results and summary to stderr.~~
+6. ~~**Entry point + Makefile** — `scripts/run_eval.py` with argparse, `make eval` target.~~
+7. ~~**Eval cases** — 17 YAML cases across 7 categories: alerts (4), Prometheus (5), Proxmox (2), PBS (1),
+   TrueNAS (2), Loki (2), cross-tool (1). Each case defines the question, expected tools, HTTP mocks, and a rubric.~~
+8. ~~**Tests** — 35 tests: unit tests for YAML parsing, tool scoring, tool call extraction, report formatting;
+   integration tests for judge with mocked LLM, settings patching, and YAML validation of all shipped cases.~~
+9. ~~**Documentation** — Updated `docs/architecture.md` (eval framework section) and readme build steps.~~
+
+**Phase 5 complete.** The eval framework runs the real LLM against mocked infrastructure to score tool selection
+(deterministic) and answer quality (LLM-as-judge). 17 eval cases, 35 framework tests, accessible via `make eval`.
+
 ### Phase 6: Weekly Reliability Report
 
 - Scheduled summarization of the past week's alerts, changes, and SLO status
 - Output as a markdown report
 - **Deliverable:** Automated weekly report generation
+
+#### Build steps
+
+1. ~~**Config settings** — SMTP/email fields (`smtp_host`, `smtp_port`, `smtp_username`, `smtp_password`,
+   `report_recipient_email`) and schedule fields (`report_schedule_cron`, `report_lookback_days`).~~
+2. ~~**Report metrics** — `sre_assistant_reports_total` Counter (trigger/status labels),
+   `sre_assistant_report_duration_seconds` Histogram.~~
+3. ~~**Report generator** — `src/report/generator.py`: direct API collectors for alerts (Grafana), SLO status
+   (Prometheus), tool usage (Prometheus), cost (Prometheus), log errors (Loki). All collectors run concurrently via
+   `asyncio.gather()` with independent error handling. Single LLM call for narrative summary. Markdown formatter.~~
+4. ~~**Email delivery** — `src/report/email.py`: stdlib `smtplib` with STARTTLS, plain-text markdown body.~~
+5. ~~**Scheduler** — `src/report/scheduler.py`: APScheduler `AsyncIOScheduler` with `CronTrigger`, configurable
+   cron expression.~~
+6. ~~**FastAPI integration** — `POST /report` endpoint for on-demand generation, scheduler lifecycle in lifespan.~~
+7. ~~**Tests** — unit tests for formatting and email config, integration tests with respx for all collectors,
+   end-to-end report generation, email mocking, scheduler start/stop, API endpoint.~~
+8. ~~**CLI + docs** — `make report` target, updated architecture/code-flow/dependencies docs.~~
+
+**Phase 6 complete.** Weekly reports summarize alerts, SLO status, tool usage, costs, and log errors. Generated
+via direct API queries + single LLM narrative. Delivered via email (Gmail SMTP) on a configurable cron schedule
+or on-demand via `POST /report`.
 
 ### Deployment
 
@@ -661,16 +694,28 @@ homelab-sre-assistant/
 │   │   └── callbacks.py          # LangChain callback handler for metrics
 │   │       ├── embeddings.py     # Document embedding pipeline
 │   │       └── runbooks.py       # Runbook RAG retrieval
+│   ├── eval/
+│   │   ├── models.py             # Pydantic models for eval cases and results
+│   │   ├── loader.py             # YAML case loader with validation
+│   │   ├── runner.py             # Core runner (settings patching, mocks, scoring)
+│   │   ├── judge.py              # LLM-as-judge answer quality scoring
+│   │   ├── report.py             # Terminal report formatting
+│   │   └── cases/                # 17 YAML eval cases
+│   ├── report/
+│   │   ├── generator.py          # Direct API collectors + LLM narrative + markdown formatter
+│   │   ├── email.py              # SMTP email delivery (STARTTLS)
+│   │   └── scheduler.py          # APScheduler cron-based report scheduling
 │   ├── api/
 │   │   └── main.py               # FastAPI application
 │   └── ui/
 │       └── app.py                # Streamlit frontend
 ├── scripts/
 │   ├── ingest_runbooks.py        # Rebuild Chroma vector store
+│   ├── run_eval.py               # Eval framework entry point
 │   └── install-hooks.sh          # Install git pre-push hook
 ├── dashboards/
 │   └── sre-assistant-sli.json    # Grafana SLI/SLO dashboard
-├── tests/                        # Unit + integration tests (391 passing)
+├── tests/                        # Unit + integration tests (462 passing)
 ├── docs/                         # Design documentation
 │   ├── architecture.md           # System overview, data flow, deployment
 │   ├── tool-reference.md         # All tools with inputs and examples

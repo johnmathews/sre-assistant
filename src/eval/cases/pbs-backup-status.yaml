@@ -1,0 +1,42 @@
+id: pbs-backup-status
+description: "Agent should check PBS backup storage and recent backups"
+question: "What is the backup storage status? Are backups up to date?"
+
+required_services: [pbs]
+
+expected_tools:
+  must_call: [pbs_datastore_status]
+  may_call: [pbs_list_backups, pbs_list_tasks]
+  must_not_call: []
+
+mocks:
+  - url: "https://pbs.test:8007/api2/json/status/datastore-usage"
+    method: GET
+    status: 200
+    body:
+      data:
+        - store: "backups"
+          total: 1099511627776
+          used: 549755813888
+          avail: 549755813888
+          gc-status:
+            index-data-bytes: 549755813888
+  - url: "https://pbs.test:8007/api2/json/admin/datastore/backups/groups"
+    method: GET
+    status: 200
+    body:
+      data:
+        - backup-type: "vm"
+          backup-id: "105"
+          last-backup: "2024-01-15T02:00:00Z"
+          backup-count: 7
+        - backup-type: "ct"
+          backup-id: "100"
+          last-backup: "2024-01-15T02:00:00Z"
+          backup-count: 7
+
+rubric: |
+  The answer should:
+  1. Report datastore usage (approximately 50% used)
+  2. Mention backup recency if backup groups were queried
+  3. Indicate whether backups appear healthy

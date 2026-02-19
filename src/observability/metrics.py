@@ -90,6 +90,24 @@ APP_INFO = Info(
 )
 
 # ---------------------------------------------------------------------------
+# Report metrics
+# ---------------------------------------------------------------------------
+
+REPORT_DURATION_BUCKETS = (5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 180.0)
+
+REPORTS_TOTAL = Counter(
+    "sre_assistant_reports_total",
+    "Total number of generated reports",
+    labelnames=["trigger", "status"],
+)
+
+REPORT_DURATION = Histogram(
+    "sre_assistant_report_duration_seconds",
+    "Time taken to generate a report in seconds",
+    buckets=REPORT_DURATION_BUCKETS,
+)
+
+# ---------------------------------------------------------------------------
 # Cost pricing (USD per token) — GPT-4o-mini as default
 # ---------------------------------------------------------------------------
 

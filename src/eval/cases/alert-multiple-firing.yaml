@@ -1,0 +1,55 @@
+id: alert-multiple-firing
+description: "Agent should summarize multiple firing alerts grouped by severity"
+question: "Give me a summary of all active alerts"
+
+required_services: [grafana]
+
+expected_tools:
+  must_call: [grafana_get_alerts]
+  may_call: [prometheus_instant_query]
+  must_not_call: []
+
+mocks:
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body:
+      - labels:
+          grafana_folder: "Infrastructure"
+        receiver:
+          name: "pushover"
+        alerts:
+          - labels:
+              alertname: "HighCPU"
+              severity: "warning"
+              hostname: "jellyfin"
+            annotations:
+              summary: "CPU above 90% on jellyfin"
+            startsAt: "2024-01-15T10:00:00Z"
+            status:
+              state: "active"
+          - labels:
+              alertname: "LowDiskSpace"
+              severity: "critical"
+              hostname: "jellyfin"
+            annotations:
+              summary: "Disk usage above 95% on jellyfin"
+            startsAt: "2024-01-15T08:00:00Z"
+            status:
+              state: "active"
+          - labels:
+              alertname: "HighMemory"
+              severity: "warning"
+              hostname: "infra"
+            annotations:
+              summary: "Memory above 85% on infra"
+            startsAt: "2024-01-15T09:30:00Z"
+            status:
+              state: "active"
+
+rubric: |
+  The answer should:
+  1. List all three alerts (HighCPU, LowDiskSpace, HighMemory)
+  2. Identify severities (1 critical, 2 warnings)
+  3. Mention the affected hosts (jellyfin, infra)
+  4. Note that the critical alert (LowDiskSpace) is most urgent

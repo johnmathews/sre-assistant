@@ -1,0 +1,45 @@
+id: prom-instant-query
+description: "Agent should query Prometheus for current CPU usage"
+question: "What is the current CPU usage on the jellyfin VM?"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_instant_query]
+  may_call: [prometheus_search_metrics]
+  must_not_call: [grafana_get_alerts]
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result:
+          - metric:
+              __name__: "pve_cpu_usage_ratio"
+              hostname: "jellyfin"
+              id: "qemu/105"
+            value: [1705312800, "0.42"]
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        pve_cpu_usage_ratio:
+          - type: "gauge"
+            help: "CPU usage ratio"
+            unit: ""
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body: []
+
+rubric: |
+  The answer should:
+  1. Report the CPU usage value (approximately 42%)
+  2. Reference the jellyfin VM specifically
+  3. Not fabricate additional data

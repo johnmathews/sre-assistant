@@ -4,10 +4,12 @@ Provides HTTP endpoints so the agent can be consumed by web clients.
 The agent is built once at startup and shared across requests.
 """
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import httpx
@@ -21,10 +23,15 @@ from src.config import get_settings
 from src.observability.metrics import (
     APP_INFO,
     COMPONENT_HEALTHY,
+    REPORT_DURATION,
+    REPORTS_TOTAL,
     REQUEST_DURATION,
     REQUESTS_IN_PROGRESS,
     REQUESTS_TOTAL,
 )
+from src.report.email import is_email_configured, send_report_email
+from src.report.generator import generate_report
+from src.report.scheduler import start_scheduler, stop_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +53,20 @@ class AskResponse(BaseModel):
 
     response: str
     session_id: str
+
+
+class ReportRequest(BaseModel):
+    """Request body for POST /report."""
+
+    lookback_days: int | None = None
+
+
+class ReportResponse(BaseModel):
+    """Response body for POST /report."""
+
+    report: str
+    emailed: bool
+    timestamp: str
 
 
 class ComponentHealth(BaseModel):
@@ -83,7 +104,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("Failed to build agent at startup")
         raise
+
+    start_scheduler()
     yield
+    stop_scheduler()
     logger.info("Shutting down SRE assistant")
 
 
@@ -280,3 +304,36 @@ async def health() -> HealthResponse:
         overall = "degraded"
 
     return HealthResponse(status=overall, model=settings.openai_model, components=components)
+
+
+@app.post("/report", response_model=ReportResponse)
+async def report(request: ReportRequest | None = None) -> ReportResponse:
+    """Generate a reliability report on demand."""
+    lookback_days = request.lookback_days if request else None
+    start = time.monotonic()
+
+    try:
+        markdown = await generate_report(lookback_days)
+        emailed = False
+        if is_email_configured():
+            emailed = await asyncio.to_thread(send_report_email, markdown)
+
+        duration = time.monotonic() - start
+        REPORTS_TOTAL.labels(trigger="manual", status="success").inc()
+        REPORT_DURATION.observe(duration)
+        REQUESTS_TOTAL.labels(endpoint="/report", status="success").inc()
+        REQUEST_DURATION.labels(endpoint="/report").observe(duration)
+
+        return ReportResponse(
+            report=markdown,
+            emailed=emailed,
+            timestamp=datetime.now(UTC).isoformat(),
+        )
+    except Exception as exc:
+        duration = time.monotonic() - start
+        REPORTS_TOTAL.labels(trigger="manual", status="error").inc()
+        REPORT_DURATION.observe(duration)
+        REQUESTS_TOTAL.labels(endpoint="/report", status="error").inc()
+        REQUEST_DURATION.labels(endpoint="/report").observe(duration)
+        logger.exception("Report generation failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

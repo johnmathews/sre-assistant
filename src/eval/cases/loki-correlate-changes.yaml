@@ -1,0 +1,80 @@
+id: loki-correlate-changes
+description: "Agent should use change correlation to find what happened before an alert"
+question: "What changed in the last hour that might explain the high CPU alert on jellyfin?"
+
+required_services: [loki, grafana]
+
+expected_tools:
+  must_call: [loki_correlate_changes]
+  may_call: [grafana_get_alerts, loki_query_logs, prometheus_instant_query]
+  must_not_call: []
+
+mocks:
+  - url: "http://loki.test:3100/loki/api/v1/query_range"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "streams"
+        result:
+          - stream:
+              hostname: "jellyfin"
+              service_name: "jellyfin"
+              container: "jellyfin"
+              detected_level: "warn"
+            values:
+              - ["1705312500000000000", "level=warn msg=\"transcoding session started for 4K content\""]
+              - ["1705312200000000000", "level=warn msg=\"hardware acceleration unavailable, falling back to software decode\""]
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body:
+      - labels:
+          grafana_folder: "Infrastructure"
+        alerts:
+          - labels:
+              alertname: "HighCPU"
+              hostname: "jellyfin"
+              severity: "warning"
+            annotations:
+              summary: "CPU above 90%"
+            startsAt: "2024-01-15T10:00:00Z"
+            status:
+              state: "active"
+  - url: "http://loki.test:3100/loki/api/v1/labels"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data: ["hostname", "service_name", "container", "detected_level"]
+  - url: "http://loki.test:3100/loki/api/v1/label/hostname/values"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data: ["jellyfin", "media", "infra"]
+  - url: "http://loki.test:3100/ready"
+    method: GET
+    status: 200
+    body: "ready"
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result: []
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data: {}
+
+rubric: |
+  The answer should:
+  1. Identify the transcoding event as a likely cause of high CPU
+  2. Mention the hardware acceleration fallback to software decode
+  3. Connect the log events to the CPU alert

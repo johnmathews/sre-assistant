@@ -1,0 +1,38 @@
+id: truenas-nfs-shares
+description: "Agent should list NFS shares from TrueNAS"
+question: "What NFS shares are configured on TrueNAS?"
+
+required_services: [truenas]
+
+expected_tools:
+  must_call: [truenas_list_shares]
+  may_call: []
+  must_not_call: []
+
+mocks:
+  - url: "https://truenas.test/api/v2.0/sharing/nfs"
+    method: GET
+    status: 200
+    body:
+      - id: 1
+        path: "/mnt/tank/media"
+        comment: "Media files"
+        enabled: true
+        hosts: []
+        networks: ["192.168.2.0/24"]
+      - id: 2
+        path: "/mnt/tank/backups"
+        comment: "Backup storage"
+        enabled: true
+        hosts: []
+        networks: ["192.168.2.0/24"]
+  - url: "https://truenas.test/api/v2.0/sharing/smb"
+    method: GET
+    status: 200
+    body: []
+
+rubric: |
+  The answer should:
+  1. List both NFS shares (media and backups paths)
+  2. Mention they are enabled
+  3. Include network restrictions if shown

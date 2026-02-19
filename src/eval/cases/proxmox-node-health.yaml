@@ -1,0 +1,40 @@
+id: proxmox-node-health
+description: "Agent should check Proxmox node health status"
+question: "How is the Proxmox node doing? What's its resource usage?"
+
+required_services: [proxmox]
+
+expected_tools:
+  must_call: [proxmox_node_status]
+  may_call: [proxmox_list_guests]
+  must_not_call: []
+
+mocks:
+  - url: "https://proxmox.test:8006/api2/json/nodes/proxmox/status"
+    method: GET
+    status: 200
+    body:
+      data:
+        cpu: 0.18
+        loadavg:
+          - "1.25"
+          - "1.10"
+          - "0.95"
+        memory:
+          total: 68719476736
+          used: 34359738368
+          free: 34359738368
+        uptime: 1209600
+        pveversion: "pve-manager/8.1.3/12345678"
+  - url: "https://proxmox.test:8006/api2/json/cluster/resources"
+    method: GET
+    status: 200
+    body:
+      data: []
+
+rubric: |
+  The answer should:
+  1. Report CPU usage (~18%) and/or load averages
+  2. Report memory usage (~50%)
+  3. Mention uptime or PVE version
+  4. Indicate the node appears healthy

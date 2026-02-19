@@ -15,9 +15,10 @@
 | `pydantic` | Data validation for tool input schemas and API models |
 | `pydantic-settings` | Environment variable loading with validation |
 | `python-dotenv` | `.env` file parsing (used by pydantic-settings) |
-| `pyyaml` | YAML parsing (runbook frontmatter) |
+| `pyyaml` | YAML parsing (runbook frontmatter, eval cases) |
 | `streamlit` | Web UI for the agent |
 | `prometheus-client` | Self-instrumentation — expose Prometheus metrics at `/metrics` |
+| `apscheduler` | Scheduled report generation — `AsyncIOScheduler` with cron triggers |
 
 ### Development
 
@@ -27,7 +28,8 @@
 | `ruff` | Linting and formatting |
 | `pytest` | Test framework |
 | `pytest-asyncio` | Async test support (all tools are async) |
-| `respx` | HTTP mocking for httpx (integration tests) |
+| `respx` | HTTP mocking for httpx (integration tests, eval framework) |
+| `types-PyYAML` | Type stubs for PyYAML |
 
 ## LLM Model Selection
 

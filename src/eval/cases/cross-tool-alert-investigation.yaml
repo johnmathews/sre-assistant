@@ -1,0 +1,73 @@
+id: cross-tool-alert-investigation
+description: "Agent should investigate an alert using multiple tools (alerts + metrics)"
+question: "There's a HighMemory alert on the infra VM. Can you investigate what's going on?"
+
+required_services: [grafana]
+
+expected_tools:
+  must_call: [grafana_get_alerts, prometheus_instant_query]
+  may_call: [prometheus_search_metrics, prometheus_range_query]
+  must_not_call: []
+
+mocks:
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body:
+      - labels:
+          grafana_folder: "Infrastructure"
+        alerts:
+          - labels:
+              alertname: "HighMemory"
+              hostname: "infra"
+              severity: "warning"
+            annotations:
+              summary: "Memory usage above 85% on infra for 15 minutes"
+            startsAt: "2024-01-15T09:45:00Z"
+            status:
+              state: "active"
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result:
+          - metric:
+              __name__: "node_memory_MemAvailable_bytes"
+              hostname: "infra"
+            value: [1705312800, "644245094"]
+          - metric:
+              __name__: "node_memory_MemTotal_bytes"
+              hostname: "infra"
+            value: [1705312800, "4294967296"]
+  - url: "http://prometheus.test:9090/api/v1/query_range"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "matrix"
+        result: []
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        node_memory_MemAvailable_bytes:
+          - type: "gauge"
+            help: "Memory available bytes"
+            unit: ""
+        node_memory_MemTotal_bytes:
+          - type: "gauge"
+            help: "Memory total bytes"
+            unit: ""
+
+rubric: |
+  The answer should:
+  1. Confirm the HighMemory alert is firing on infra
+  2. Report memory usage (approximately 85% used, ~600MB available of 4GB)
+  3. Suggest investigation steps or possible causes
+  4. Use data from both Grafana alerts and Prometheus metrics

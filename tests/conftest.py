@@ -57,6 +57,15 @@ def mock_settings() -> Generator[Any]:
             "truenas_api_key": "1-fake-truenas-api-key",
             "truenas_verify_ssl": False,
             "truenas_ca_cert": "",
+            # SMTP / Email
+            "smtp_host": "smtp.test.com",
+            "smtp_port": 587,
+            "smtp_username": "test@test.com",
+            "smtp_password": "test-password",
+            "report_recipient_email": "recipient@test.com",
+            # Report schedule
+            "report_schedule_cron": "",
+            "report_lookback_days": 7,
         },
     )()
     with (
@@ -71,5 +80,8 @@ def mock_settings() -> Generator[Any]:
         patch("src.agent.tools.disk_status.get_settings", return_value=fake_settings),
         patch("src.agent.retrieval.embeddings.get_settings", return_value=fake_settings),
         patch("src.api.main.get_settings", return_value=fake_settings),
+        patch("src.report.generator.get_settings", return_value=fake_settings),
+        patch("src.report.email.get_settings", return_value=fake_settings),
+        patch("src.report.scheduler.get_settings", return_value=fake_settings),
     ):
         yield fake_settings

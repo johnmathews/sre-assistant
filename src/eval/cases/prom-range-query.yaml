@@ -1,0 +1,53 @@
+id: prom-range-query
+description: "Agent should use range query for historical CPU trend"
+question: "Show me the CPU usage trend for jellyfin over the last hour"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_range_query]
+  may_call: [prometheus_search_metrics, prometheus_instant_query]
+  must_not_call: []
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query_range"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "matrix"
+        result:
+          - metric:
+              __name__: "pve_cpu_usage_ratio"
+              hostname: "jellyfin"
+            values:
+              - [1705309200, "0.15"]
+              - [1705310100, "0.22"]
+              - [1705311000, "0.45"]
+              - [1705311900, "0.38"]
+              - [1705312800, "0.42"]
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result: []
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        pve_cpu_usage_ratio:
+          - type: "gauge"
+            help: "CPU usage ratio"
+            unit: ""
+
+rubric: |
+  The answer should:
+  1. Describe a CPU usage trend (rising from ~15% to ~42%)
+  2. Reference jellyfin specifically
+  3. Note the increase over the time period

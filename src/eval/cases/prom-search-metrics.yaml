@@ -1,0 +1,40 @@
+id: prom-search-metrics
+description: "Agent should search for available memory metrics"
+question: "What memory-related metrics are available in Prometheus?"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_search_metrics]
+  may_call: []
+  must_not_call: [prometheus_instant_query, grafana_get_alerts]
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        node_memory_MemTotal_bytes:
+          - type: "gauge"
+            help: "Memory information field MemTotal_bytes"
+            unit: ""
+        node_memory_MemAvailable_bytes:
+          - type: "gauge"
+            help: "Memory information field MemAvailable_bytes"
+            unit: ""
+        node_memory_MemFree_bytes:
+          - type: "gauge"
+            help: "Memory information field MemFree_bytes"
+            unit: ""
+        pve_memory_usage_bytes:
+          - type: "gauge"
+            help: "Memory usage in bytes"
+            unit: ""
+
+rubric: |
+  The answer should:
+  1. List several memory-related metric names
+  2. Include node_memory and/or pve_memory metrics
+  3. Briefly describe what the metrics measure

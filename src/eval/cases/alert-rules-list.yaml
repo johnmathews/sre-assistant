@@ -1,0 +1,42 @@
+id: alert-rules-list
+description: "Agent should list configured alert rules"
+question: "What alert rules are configured in Grafana?"
+
+required_services: [grafana]
+
+expected_tools:
+  must_call: [grafana_get_alert_rules]
+  may_call: [grafana_get_alerts]
+  must_not_call: []
+
+mocks:
+  - url: "http://grafana.test:3000/api/v1/provisioning/alert-rules"
+    method: GET
+    status: 200
+    body:
+      - uid: "rule-1"
+        title: "HighCPU"
+        condition: "C"
+        folderUID: "infra"
+        ruleGroup: "infrastructure"
+        for: "10m"
+        labels:
+          severity: "warning"
+      - uid: "rule-2"
+        title: "LowDiskSpace"
+        condition: "B"
+        folderUID: "infra"
+        ruleGroup: "infrastructure"
+        for: "5m"
+        labels:
+          severity: "critical"
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body: []
+
+rubric: |
+  The answer should:
+  1. List both alert rules (HighCPU and LowDiskSpace)
+  2. Include severity levels
+  3. Not confuse alert rules with active alerts

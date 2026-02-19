@@ -1,0 +1,51 @@
+id: truenas-pool-health
+description: "Agent should check TrueNAS ZFS pool health"
+question: "Is the TrueNAS tank pool healthy? How much space is available?"
+
+required_services: [truenas]
+
+expected_tools:
+  must_call: [truenas_pool_status]
+  may_call: []
+  must_not_call: [prometheus_instant_query]
+
+mocks:
+  - url: "https://truenas.test/api/v2.0/pool"
+    method: GET
+    status: 200
+    body:
+      - id: 1
+        name: "tank"
+        status: "ONLINE"
+        healthy: true
+        topology:
+          data:
+            - type: "MIRROR"
+              status: "ONLINE"
+              children:
+                - disk: "sda"
+                  status: "ONLINE"
+                - disk: "sdb"
+                  status: "ONLINE"
+  - url: "https://truenas.test/api/v2.0/pool/dataset"
+    method: GET
+    status: 200
+    body:
+      - name: "tank"
+        pool: "tank"
+        used:
+          rawvalue: "5497558138880"
+        available:
+          rawvalue: "10995116277760"
+      - name: "tank/media"
+        pool: "tank"
+        used:
+          rawvalue: "3298534883328"
+        available:
+          rawvalue: "10995116277760"
+
+rubric: |
+  The answer should:
+  1. Report the tank pool is ONLINE and healthy
+  2. Report space usage (approximately 5TB used, 11TB available)
+  3. Mention the mirror topology if details were provided
