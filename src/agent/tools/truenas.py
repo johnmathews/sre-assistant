@@ -797,9 +797,7 @@ async def truenas_snapshots(dataset: str | None = None, limit: int = 50) -> str:
         }
         snap_params["query-options"] = json.dumps(query_options)
 
-        snaps_raw = await _truenas_get(
-            "/zfs/snapshot", params=snap_params, timeout=SNAPSHOT_TIMEOUT_SECONDS
-        )
+        snaps_raw = await _truenas_get("/zfs/snapshot", params=snap_params, timeout=SNAPSHOT_TIMEOUT_SECONDS)
         snapshots: list[TruenasSnapshotEntry] = snaps_raw if isinstance(snaps_raw, list) else []
 
         tasks_raw = await _truenas_get("/pool/snapshottask")

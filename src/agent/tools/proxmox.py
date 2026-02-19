@@ -221,14 +221,10 @@ def _format_tasks(tasks: list[PveTaskEntry]) -> str:
         starttime = task.get("starttime", 0)
         endtime = task.get("endtime")
 
-        start_str = datetime.fromtimestamp(starttime, tz=UTC).strftime(
-            "%Y-%m-%d %H:%M:%S UTC"
-        )
+        start_str = datetime.fromtimestamp(starttime, tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
         end_str = ""
         if endtime:
-            end_str = datetime.fromtimestamp(endtime, tz=UTC).strftime(
-                "%Y-%m-%d %H:%M:%S UTC"
-            )
+            end_str = datetime.fromtimestamp(endtime, tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
         status_marker = "OK" if status == "OK" else status
         id_str = f" ({task_id})" if task_id else ""
