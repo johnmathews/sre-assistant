@@ -6,6 +6,7 @@ from src.agent.tools.prometheus import (
     PrometheusMetadataEntry,
     PrometheusResponse,
     PrometheusSeries,
+    _check_negative_max_over_time,
     _format_result,
     _format_search_results,
     _parse_duration,
@@ -138,6 +139,80 @@ class TestFormatResult:
         assert "min: 10" in output
         assert "max: 50" in output
         assert "avg: 30" in output
+
+
+class TestCheckNegativeMaxOverTime:
+    def test_warns_on_max_over_time_with_negative_values(self) -> None:
+        series: PrometheusSeries = {
+            "metric": {"name": "youfone.nl"},
+            "value": [1700000000, "-1234.5"],
+        }
+        result_data: PrometheusData = {"resultType": "vector", "result": [series]}
+        data: PrometheusResponse = {"status": "success", "data": result_data}
+        warning = _check_negative_max_over_time(
+            "max_over_time(mktxp_interface_download_bytes_per_second{name='youfone.nl'}[7d])",
+            data,
+        )
+        assert "WARNING" in warning
+        assert "min_over_time" in warning
+
+    def test_warns_on_abs_max_over_time_even_with_positive_result(self) -> None:
+        """abs(max_over_time(...)) hides the sign but still returns wrong answer."""
+        series: PrometheusSeries = {
+            "metric": {"name": "youfone.nl"},
+            "value": [1700000000, "100.5"],  # abs made it positive — still wrong
+        }
+        result_data: PrometheusData = {"resultType": "vector", "result": [series]}
+        data: PrometheusResponse = {"status": "success", "data": result_data}
+        warning = _check_negative_max_over_time(
+            "abs(max_over_time(mktxp_interface_download_bytes_per_second{name='youfone.nl'}[7d]))",
+            data,
+        )
+        assert "WARNING" in warning
+        assert "abs() does not fix" in warning
+
+    def test_no_warning_on_max_over_time_with_positive_values(self) -> None:
+        series: PrometheusSeries = {
+            "metric": {"hostname": "jellyfin"},
+            "value": [1700000000, "0.85"],
+        }
+        result_data: PrometheusData = {"resultType": "vector", "result": [series]}
+        data: PrometheusResponse = {"status": "success", "data": result_data}
+        warning = _check_negative_max_over_time(
+            "max_over_time(pve_cpu_usage_ratio{name='jellyfin'}[7d])",
+            data,
+        )
+        assert warning == ""
+
+    def test_no_warning_on_min_over_time_with_negative_values(self) -> None:
+        """min_over_time on negative values is the correct approach — no warning."""
+        series: PrometheusSeries = {
+            "metric": {"name": "youfone.nl"},
+            "value": [1700000000, "-50000000"],
+        }
+        result_data: PrometheusData = {"resultType": "vector", "result": [series]}
+        data: PrometheusResponse = {"status": "success", "data": result_data}
+        warning = _check_negative_max_over_time(
+            "abs(min_over_time(mktxp_interface_download_bytes_per_second{name='youfone.nl'}[7d]))",
+            data,
+        )
+        assert warning == ""
+
+    def test_no_warning_on_unrelated_query(self) -> None:
+        series: PrometheusSeries = {
+            "metric": {"hostname": "media"},
+            "value": [1700000000, "-5"],
+        }
+        result_data: PrometheusData = {"resultType": "vector", "result": [series]}
+        data: PrometheusResponse = {"status": "success", "data": result_data}
+        warning = _check_negative_max_over_time("up{hostname='media'}", data)
+        assert warning == ""
+
+    def test_no_warning_on_empty_results(self) -> None:
+        result_data: PrometheusData = {"resultType": "vector", "result": []}
+        data: PrometheusResponse = {"status": "success", "data": result_data}
+        warning = _check_negative_max_over_time("max_over_time(some_metric[7d])", data)
+        assert warning == ""
 
 
 class TestFormatSearchResults:

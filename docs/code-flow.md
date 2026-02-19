@@ -18,14 +18,16 @@ src/api/main.py::ask()
     -> agent.ainvoke({"messages": [HumanMessage(content=message)]}, config)
 ```
 
-The agent is built once at startup via `build_agent()` and stored in `app.state.agent`. Each request passes through
+The agent is built once at startup via `build_agent()` and stored in `app.state.agent`. At build time, the system
+prompt template is formatted with the current UTC date/time and a Prometheus retention cutoff (~90 days ago), so the
+agent always knows what "today" is and avoids querying stale time ranges. Each request passes through
 `invoke_agent()` which wraps the LangGraph `ainvoke` call with a session-scoped config for conversation memory.
 
 ### 3. Tool Selection
 
 LangGraph's `create_agent` compiles the LLM + tools into a graph. The LLM:
 
-1. Reads the system prompt (which includes the tool selection guide)
+1. Reads the system prompt (which includes the tool selection guide, current date/time, and Prometheus retention limit)
 2. Examines the user's question
 3. Decides which tool(s) to call (or responds directly)
 4. Calls tools, reads results, and reasons about the response

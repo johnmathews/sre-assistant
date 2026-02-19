@@ -93,6 +93,17 @@ Every external dependency has explicit error handling:
 All tools set `handle_tool_error = True` so errors are returned to the LLM as text (not raised as exceptions), allowing
 the agent to report failures gracefully to the user.
 
+### Query Correctness Safeguards
+
+The Prometheus tools include defense-in-depth against common query mistakes:
+
+1. **System prompt guidance** (preventive) — the prompt template includes patterns for both positive and negative
+   metrics, explaining that `max_over_time` on negative values returns the smallest magnitude, not the peak.
+2. **Tool output warnings** (reactive) — `prometheus_instant_query` detects when `max_over_time` is used with
+   negative result values (or wrapped in `abs()`), and appends a warning suggesting `min_over_time` + `abs()`.
+3. **Improved empty-result messages** — when a query returns no data, the error message suggests checking retention
+   limits, label filters, and whether an instant query with `*_over_time` would be more appropriate.
+
 ## Self-Instrumentation (Observability)
 
 The assistant tracks its own reliability via Prometheus metrics, exposed at `GET /metrics`.

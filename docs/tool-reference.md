@@ -37,6 +37,9 @@ Query Prometheus for the current value of a metric (instant query).
 - **Input:** `query` (PromQL string), `time` (optional RFC3339/Unix timestamp)
 - **Example questions:** "What is the current CPU usage on jellyfin?", "How many VMs are running?"
 - **Returns:** Formatted metric values with labels
+- **Safeguard:** If the query uses `max_over_time` and returns negative values (or wraps `max_over_time` in `abs()`),
+  a warning is appended to the output explaining that `min_over_time` + `abs()` should be used instead for peak
+  magnitude of negative metrics (e.g. download bytes/sec)
 
 ### prometheus_range_query
 

@@ -1,6 +1,7 @@
 """LangChain agent assembly — wires tools, system prompt, and memory together."""
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -55,10 +56,16 @@ logger = logging.getLogger(__name__)
 # in every module that imports build_agent / invoke_agent.
 type AgentGraph = Any
 
-SYSTEM_PROMPT = """\
+SYSTEM_PROMPT_TEMPLATE = """\
 You are an SRE assistant for a Proxmox homelab running 80+ services across multiple VMs and LXCs.
 
 You have access to live infrastructure tools and a knowledge base of operational runbooks.
+
+## Current Date and Time
+The current time is {current_time} UTC. Today's date is {current_date}.
+Prometheus retains data for approximately 100 days. Do not query dates before {retention_cutoff}.
+When the user says "last week", "past hour", "recently", etc., calculate the appropriate
+time range relative to the current time above.
 
 ## Tool Selection Guide
 
@@ -161,6 +168,20 @@ Use these patterns when constructing Prometheus queries:
 **Historical aggregation / "average over the last day":**
 - `topk(5, avg_over_time(pve_cpu_usage_ratio[1d]))` — highest average CPU over last day
 - `max_over_time(node_load1{hostname="jellyfin"}[6h])` — peak 1-min load in last 6 hours
+
+**Single-value aggregation / "what's the peak/max/min/average?":**
+- These questions need a SINGLE number, not a time series — use `prometheus_instant_query`
+- `avg_over_time(metric{...}[24h])` as an instant query → one number: the 24h average
+- Do NOT use `prometheus_range_query` for these — range queries return time series, \
+but `*_over_time` inside a range query operates on each step's sub-window, not the full range
+- Only use `prometheus_range_query` when you need to SEE the trend (e.g. "show me CPU over time")
+- **For "peak" / "highest" of a positive metric** (CPU, memory, load): \
+`max_over_time(metric{...}[7d])` → the largest value
+- **For "peak" / "fastest" of a negative metric** (download bytes/sec): \
+`abs(min_over_time(metric{...}[7d]))` → `min_over_time` gets the most negative value \
+(= largest magnitude), `abs()` makes it positive. `max_over_time` would return the value \
+closest to zero, which is the SLOWEST, not the fastest
+- **When unsure if a metric is positive or negative**, query its current value first
 
 **Rates for counters / "how fast is...":**
 - `rate(node_network_receive_bytes_total{hostname="media"}[5m])` — network receive rate
@@ -432,12 +453,19 @@ def build_agent(
     tools = _get_tools()
     logger.info("Building agent with model=%s, %d tools: %s", resolved_model, len(tools), [t.name for t in tools])
 
+    now = datetime.now(UTC)
+    system_prompt = (
+        SYSTEM_PROMPT_TEMPLATE.replace("{current_time}", now.strftime("%Y-%m-%d %H:%M:%S"))
+        .replace("{current_date}", now.strftime("%Y-%m-%d"))
+        .replace("{retention_cutoff}", (now - timedelta(days=90)).strftime("%Y-%m-%d"))
+    )
+
     checkpointer = MemorySaver()
 
     agent: AgentGraph = create_agent(
         model=llm,
         tools=tools,
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         checkpointer=checkpointer,
     )
 

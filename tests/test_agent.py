@@ -1,12 +1,13 @@
 """Unit tests for agent assembly — system prompt, tool wiring, invocation."""
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage
 
 from src.agent.agent import (
-    SYSTEM_PROMPT,
+    SYSTEM_PROMPT_TEMPLATE,
     _get_tools,
     _is_tool_call_pairing_error,
     build_agent,
@@ -16,40 +17,40 @@ from src.agent.agent import (
 
 class TestSystemPrompt:
     def test_mentions_all_tools(self) -> None:
-        assert "prometheus_instant_query" in SYSTEM_PROMPT
-        assert "prometheus_range_query" in SYSTEM_PROMPT
-        assert "grafana_get_alerts" in SYSTEM_PROMPT
-        assert "grafana_get_alert_rules" in SYSTEM_PROMPT
-        assert "runbook_search" in SYSTEM_PROMPT
+        assert "prometheus_instant_query" in SYSTEM_PROMPT_TEMPLATE
+        assert "prometheus_range_query" in SYSTEM_PROMPT_TEMPLATE
+        assert "grafana_get_alerts" in SYSTEM_PROMPT_TEMPLATE
+        assert "grafana_get_alert_rules" in SYSTEM_PROMPT_TEMPLATE
+        assert "runbook_search" in SYSTEM_PROMPT_TEMPLATE
 
     def test_mentions_proxmox_tools(self) -> None:
-        assert "proxmox_list_guests" in SYSTEM_PROMPT
-        assert "proxmox_get_guest_config" in SYSTEM_PROMPT
-        assert "proxmox_node_status" in SYSTEM_PROMPT
-        assert "proxmox_list_tasks" in SYSTEM_PROMPT
+        assert "proxmox_list_guests" in SYSTEM_PROMPT_TEMPLATE
+        assert "proxmox_get_guest_config" in SYSTEM_PROMPT_TEMPLATE
+        assert "proxmox_node_status" in SYSTEM_PROMPT_TEMPLATE
+        assert "proxmox_list_tasks" in SYSTEM_PROMPT_TEMPLATE
 
     def test_mentions_pbs_tools(self) -> None:
-        assert "pbs_datastore_status" in SYSTEM_PROMPT
-        assert "pbs_list_backups" in SYSTEM_PROMPT
-        assert "pbs_list_tasks" in SYSTEM_PROMPT
+        assert "pbs_datastore_status" in SYSTEM_PROMPT_TEMPLATE
+        assert "pbs_list_backups" in SYSTEM_PROMPT_TEMPLATE
+        assert "pbs_list_tasks" in SYSTEM_PROMPT_TEMPLATE
 
     def test_has_proxmox_vs_prometheus_guidance(self) -> None:
-        assert "Proxmox API vs Prometheus" in SYSTEM_PROMPT
+        assert "Proxmox API vs Prometheus" in SYSTEM_PROMPT_TEMPLATE
 
     def test_has_promql_patterns(self) -> None:
-        assert "Common PromQL Patterns" in SYSTEM_PROMPT
-        assert "topk" in SYSTEM_PROMPT
-        assert "avg_over_time" in SYSTEM_PROMPT
-        assert "rate(" in SYSTEM_PROMPT
+        assert "Common PromQL Patterns" in SYSTEM_PROMPT_TEMPLATE
+        assert "topk" in SYSTEM_PROMPT_TEMPLATE
+        assert "avg_over_time" in SYSTEM_PROMPT_TEMPLATE
+        assert "rate(" in SYSTEM_PROMPT_TEMPLATE
 
     def test_has_tool_selection_guide(self) -> None:
-        assert "Tool Selection Guide" in SYSTEM_PROMPT
+        assert "Tool Selection Guide" in SYSTEM_PROMPT_TEMPLATE
 
     def test_advises_metrics_first(self) -> None:
-        assert "query metrics first" in SYSTEM_PROMPT
+        assert "query metrics first" in SYSTEM_PROMPT_TEMPLATE
 
     def test_warns_against_fabrication(self) -> None:
-        assert "Never fabricate" in SYSTEM_PROMPT
+        assert "Never fabricate" in SYSTEM_PROMPT_TEMPLATE
 
 
 class TestGetTools:
@@ -119,6 +120,24 @@ class TestBuildAgent:
     def test_custom_model_name(self, mock_settings: object) -> None:
         agent = build_agent(model_name="gpt-4o")
         assert agent is not None
+
+    def test_system_prompt_contains_current_date(self, mock_settings: object) -> None:
+        """build_agent should inject today's date into the system prompt."""
+        with patch("src.agent.agent.create_agent") as mock_create:
+            mock_create.return_value = AsyncMock()
+            build_agent()
+
+            call_kwargs = mock_create.call_args
+            prompt: str = call_kwargs.kwargs.get("system_prompt") or call_kwargs.args[2]
+            today = datetime.now(UTC).strftime("%Y-%m-%d")
+            assert today in prompt
+            assert "retains data" in prompt.lower()
+
+    def test_system_prompt_has_aggregation_guidance(self, mock_settings: object) -> None:
+        """The prompt template should include instant-query aggregation guidance."""
+        assert "Single-value aggregation" in SYSTEM_PROMPT_TEMPLATE
+        assert "prometheus_instant_query" in SYSTEM_PROMPT_TEMPLATE
+        assert "*_over_time" in SYSTEM_PROMPT_TEMPLATE
 
 
 class TestIsToolCallPairingError:

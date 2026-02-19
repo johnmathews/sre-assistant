@@ -183,10 +183,14 @@ def _format_result(data: PrometheusResponse) -> str:
 
     if not results:
         return (
-            "Query returned no results. This usually means the label filters are wrong — "
-            "not all metrics share the same labels. Try the query without label filters "
-            "(e.g. just `pve_cpu_usage_ratio`) to see what labels exist on the metric, "
-            "or use prometheus_search_metrics to verify the metric name."
+            "Query returned no results. Common causes:\n"
+            "1. Wrong label filters — not all metrics share the same labels. "
+            "Try the query without label filters to see what labels exist.\n"
+            "2. Time range outside Prometheus retention (~100 days). "
+            "Check that start/end dates are recent.\n"
+            "3. For 'peak/max/min/average' questions, use prometheus_instant_query "
+            "with *_over_time functions instead of prometheus_range_query.\n"
+            "Use prometheus_search_metrics to verify the metric name exists."
         )
 
     lines: list[str] = [f"Result type: {result_type}, series count: {len(results)}"]
@@ -236,6 +240,41 @@ def _format_result(data: PrometheusResponse) -> str:
             lines.append(f"  {series}")
 
     return "\n".join(lines)
+
+
+def _check_negative_max_over_time(query: str, data: PrometheusResponse) -> str:
+    """Return a warning if max_over_time was likely misused on a negative metric.
+
+    Catches two failure modes:
+    1. max_over_time returns a negative value — obvious sign the metric is negative
+    2. abs(max_over_time(...)) — hides the negative sign but still returns the
+       smallest magnitude (closest to zero), not the peak. Detected by checking
+       for abs() wrapping max_over_time in the query string.
+    """
+    q = query.lower()
+    if "max_over_time" not in q:
+        return ""
+
+    warning = (
+        "\n\nWARNING: max_over_time on a negative metric returns the value closest "
+        "to zero (SMALLEST magnitude), not the peak. Wrapping in abs() does not fix "
+        "this — it just makes the wrong answer positive. Use "
+        "abs(min_over_time(...)) instead to get the largest magnitude (fastest speed)."
+    )
+
+    # Case 1: abs(max_over_time(...)) — wrong query pattern regardless of result sign
+    if "abs(" in q and "max_over_time" in q:
+        return warning
+
+    # Case 2: max_over_time returned a negative value
+    results = data.get("data", {}).get("result", [])
+    for series in results:
+        value_pair = series.get("value", [])
+        if len(value_pair) > 1:
+            with contextlib.suppress(ValueError, IndexError):
+                if float(value_pair[1]) < 0:
+                    return warning
+    return ""
 
 
 async def _query_prometheus(endpoint: str, params: dict[str, str]) -> PrometheusResponse:
@@ -409,7 +448,7 @@ async def prometheus_instant_query(query: str, time: str | None = None) -> str:
     except httpx.TimeoutException as e:
         raise ToolException(f"Prometheus query timed out after {DEFAULT_TIMEOUT_SECONDS}s: {e}") from e
 
-    return _format_result(data)
+    return _format_result(data) + _check_negative_max_over_time(query, data)
 
 
 prometheus_instant_query.description = TOOL_DESCRIPTION_INSTANT
