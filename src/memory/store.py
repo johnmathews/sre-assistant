@@ -12,7 +12,7 @@ import sqlite3
 from datetime import UTC, datetime
 
 from src.config import get_settings
-from src.memory.models import BaselineRecord, IncidentRecord, ReportRecord
+from src.memory.models import BaselineRecord, IncidentRecord, QueryPatternRecord, ReportRecord
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,14 @@ CREATE TABLE IF NOT EXISTS metric_baselines (
     computed_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_baselines_lookup ON metric_baselines(metric_name, computed_at);
+
+CREATE TABLE IF NOT EXISTS query_patterns (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    question     TEXT NOT NULL,
+    tool_names   TEXT DEFAULT '',
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_patterns_created ON query_patterns(created_at);
 """
 
 
@@ -364,6 +372,58 @@ def _row_to_baseline(row: sqlite3.Row) -> BaselineRecord:
         sample_count=row["sample_count"],
         window_days=row["window_days"],
         computed_at=row["computed_at"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Query Patterns CRUD
+# ---------------------------------------------------------------------------
+
+
+def save_query_pattern(
+    conn: sqlite3.Connection,
+    *,
+    question: str,
+    tool_names: str,
+) -> int:
+    """Save a query pattern (question + tools used). Returns the new row ID."""
+    now = datetime.now(UTC).isoformat()
+    cursor = conn.execute(
+        "INSERT INTO query_patterns (question, tool_names, created_at) VALUES (?, ?, ?)",
+        (question[:200], tool_names, now),
+    )
+    conn.commit()
+    return cursor.lastrowid or 0
+
+
+def get_recent_query_patterns(
+    conn: sqlite3.Connection,
+    limit: int = 10,
+) -> list[QueryPatternRecord]:
+    """Retrieve the N most recent query patterns."""
+    rows = conn.execute(
+        "SELECT * FROM query_patterns ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [_row_to_query_pattern(r) for r in rows]
+
+
+def cleanup_old_query_patterns(conn: sqlite3.Connection, keep: int = 100) -> int:
+    """Delete old query patterns, keeping only the most recent N. Returns rows deleted."""
+    cursor = conn.execute(
+        "DELETE FROM query_patterns WHERE id NOT IN (SELECT id FROM query_patterns ORDER BY created_at DESC LIMIT ?)",
+        (keep,),
+    )
+    conn.commit()
+    return cursor.rowcount
+
+
+def _row_to_query_pattern(row: sqlite3.Row) -> QueryPatternRecord:
+    return QueryPatternRecord(
+        id=row["id"],
+        question=row["question"],
+        tool_names=row["tool_names"],
+        created_at=row["created_at"],
     )
 
 

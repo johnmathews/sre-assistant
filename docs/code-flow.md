@@ -20,8 +20,10 @@ src/api/main.py::ask()
 
 The agent is built once at startup via `build_agent()` and stored in `app.state.agent`. At build time, the system
 prompt template is formatted with the current UTC date/time and a Prometheus retention cutoff (~90 days ago), so the
-agent always knows what "today" is and avoids querying stale time ranges. Each request passes through
-`invoke_agent()` which wraps the LangGraph `ainvoke` call with a session-scoped config for conversation memory.
+agent always knows what "today" is and avoids querying stale time ranges. If the memory store is configured,
+`_get_memory_context()` loads open incidents and recent query patterns into the system prompt as additional context.
+Each request passes through `invoke_agent()` which wraps the LangGraph `ainvoke` call with a session-scoped config
+for conversation memory.
 
 ### 3. Tool Selection
 
@@ -71,7 +73,21 @@ messages = result["messages"]
 If the agent entered the error recovery path (corrupted tool-call history), the fresh session ID is used for the
 saved file, not the original session ID.
 
-### 7. Response Return
+### 7. Post-Response Actions
+
+After extracting the response text, `invoke_agent()` runs `_post_response_actions()` (best-effort, never crashes):
+
+```
+_post_response_actions(messages, question, response_text)
+  -> extract tool names from AIMessage.tool_calls
+  -> save_query_pattern(question, tool_names)  # memory store
+  -> cleanup_old_query_patterns(keep=100)       # prevent unbounded growth
+  -> detect_incident_suggestion(tool_names, response_text)
+       -> if investigation tools used AND outcome keywords found:
+          append suggestion to record incident
+```
+
+### 8. Response Return
 
 ```
 agent.ainvoke() returns {"messages": [...]}

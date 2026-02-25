@@ -184,6 +184,33 @@ def _format_alert_rules(rules: list[GrafanaAlertRule]) -> str:
     return "\n".join(lines)
 
 
+def _get_incident_history_enrichment(
+    formatted_alerts: str,
+    groups: list[GrafanaAlertGroup],
+    state_filter: str | None,
+) -> str:
+    """Extract alert names from groups and enrich with incident history from memory."""
+    try:
+        from src.memory.context import enrich_alerts_with_incident_history
+
+        alert_names: list[str] = []
+        for group in groups:
+            for alert in group.get("alerts", []):
+                alert_state = alert.get("status", {}).get("state", "unknown")
+                if state_filter and alert_state != state_filter:
+                    continue
+                name = alert.get("labels", {}).get("alertname", "")
+                if name:
+                    alert_names.append(name)
+
+        if not alert_names:
+            return formatted_alerts
+
+        return enrich_alerts_with_incident_history(formatted_alerts, alert_names)
+    except Exception:
+        return formatted_alerts
+
+
 # --- Tool descriptions ---
 
 TOOL_DESCRIPTION_ALERTS = (
@@ -223,7 +250,8 @@ async def grafana_get_alerts(state: str | None = None) -> str:
     except httpx.TimeoutException as e:
         raise ToolException(f"Grafana request timed out after {DEFAULT_TIMEOUT_SECONDS}s: {e}") from e
 
-    return _format_alerts(groups, state)  # type: ignore[arg-type]
+    formatted = _format_alerts(groups, state)  # type: ignore[arg-type]
+    return _get_incident_history_enrichment(formatted, groups, state)  # type: ignore[arg-type]
 
 
 grafana_get_alerts.description = TOOL_DESCRIPTION_ALERTS

@@ -40,3 +40,10 @@ class BaselineRecord(TypedDict):
     sample_count: int
     window_days: int
     computed_at: str  # ISO 8601
+
+
+class QueryPatternRecord(TypedDict):
+    id: int
+    question: str  # Truncated user question (first 200 chars)
+    tool_names: str  # Comma-separated tool names used
+    created_at: str  # ISO 8601

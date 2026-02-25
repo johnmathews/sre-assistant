@@ -6,15 +6,18 @@ import sqlite3
 from src.memory.models import BaselineRecord
 from src.memory.store import (
     _extract_report_metrics,
+    cleanup_old_query_patterns,
     get_baseline,
     get_baselines_for_metric,
     get_connection,
     get_latest_report,
     get_open_incidents,
+    get_recent_query_patterns,
     get_reports,
     init_schema,
     save_baselines,
     save_incident,
+    save_query_pattern,
     save_report,
     search_incidents,
     update_incident,
@@ -41,13 +44,15 @@ class TestSchemaInit:
         assert "reports" in table_names
         assert "incidents" in table_names
         assert "metric_baselines" in table_names
+        assert "query_patterns" in table_names
 
     def test_idempotent(self) -> None:
         conn = _make_conn()
         # Second call should not raise
         init_schema(conn)
         tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        assert len([r for r in tables if r["name"] in ("reports", "incidents", "metric_baselines")]) == 3
+        expected = {"reports", "incidents", "metric_baselines", "query_patterns"}
+        assert len([r for r in tables if r["name"] in expected]) == 4
 
     def test_creates_indexes(self) -> None:
         conn = _make_conn()
@@ -57,6 +62,7 @@ class TestSchemaInit:
         assert "idx_incidents_alert" in index_names
         assert "idx_incidents_created" in index_names
         assert "idx_baselines_lookup" in index_names
+        assert "idx_patterns_created" in index_names
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +351,57 @@ class TestBaselineCrud:
 
         results = get_baselines_for_metric(conn, "cpu", limit=3)
         assert len(results) == 3
+
+
+# ---------------------------------------------------------------------------
+# Query pattern CRUD tests
+# ---------------------------------------------------------------------------
+
+
+class TestQueryPatternCrud:
+    def test_save_and_retrieve(self) -> None:
+        conn = _make_conn()
+        row_id = save_query_pattern(conn, question="What is CPU on media?", tool_names="prometheus_instant_query")
+        assert row_id > 0
+
+        patterns = get_recent_query_patterns(conn, limit=10)
+        assert len(patterns) == 1
+        assert patterns[0]["question"] == "What is CPU on media?"
+        assert patterns[0]["tool_names"] == "prometheus_instant_query"
+
+    def test_truncates_long_questions(self) -> None:
+        conn = _make_conn()
+        long_question = "x" * 500
+        save_query_pattern(conn, question=long_question, tool_names="")
+
+        patterns = get_recent_query_patterns(conn, limit=1)
+        assert len(patterns[0]["question"]) == 200
+
+    def test_get_recent_returns_ordered(self) -> None:
+        conn = _make_conn()
+        for i in range(5):
+            save_query_pattern(conn, question=f"Question {i}", tool_names=f"tool_{i}")
+
+        patterns = get_recent_query_patterns(conn, limit=3)
+        assert len(patterns) == 3
+        # Most recent first
+        assert patterns[0]["question"] == "Question 4"
+
+    def test_cleanup_old_patterns(self) -> None:
+        conn = _make_conn()
+        for i in range(20):
+            save_query_pattern(conn, question=f"Question {i}", tool_names="")
+
+        deleted = cleanup_old_query_patterns(conn, keep=5)
+        assert deleted == 15
+
+        remaining = get_recent_query_patterns(conn, limit=100)
+        assert len(remaining) == 5
+
+    def test_empty_db(self) -> None:
+        conn = _make_conn()
+        patterns = get_recent_query_patterns(conn, limit=10)
+        assert patterns == []
 
 
 # ---------------------------------------------------------------------------

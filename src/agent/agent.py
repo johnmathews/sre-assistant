@@ -392,6 +392,77 @@ rather than waiting for one to finish before starting the other.
 """
 
 
+def _get_memory_context() -> str:
+    """Load dynamic context from memory store for the system prompt.
+
+    Returns a string to append to the system prompt, or empty string if
+    memory is not configured or on any error.
+    """
+    try:
+        from src.memory.context import get_open_incidents_context, get_recent_patterns_context
+
+        parts: list[str] = []
+        incidents_ctx = get_open_incidents_context()
+        if incidents_ctx:
+            parts.append(incidents_ctx)
+        patterns_ctx = get_recent_patterns_context()
+        if patterns_ctx:
+            parts.append(patterns_ctx)
+        return "\n".join(parts)
+    except Exception:
+        logger.debug("Failed to load memory context for system prompt", exc_info=True)
+        return ""
+
+
+def _extract_tool_names(messages: list[Any]) -> list[str]:
+    """Extract tool names from AIMessage tool_calls in a message list."""
+    tool_names: list[str] = []
+    for msg in messages:
+        if isinstance(msg, AIMessage) and hasattr(msg, "tool_calls"):
+            for tc in msg.tool_calls:
+                if isinstance(tc, dict) and "name" in tc:
+                    tool_names.append(tc["name"])
+    return tool_names
+
+
+def _post_response_actions(messages: list[Any], question: str, response_text: str) -> str:
+    """Run post-response actions: save query pattern, detect incident suggestion.
+
+    Returns any text to append to the response (e.g. incident suggestion),
+    or empty string. Never raises.
+    """
+    try:
+        from src.memory.context import detect_incident_suggestion
+        from src.memory.store import (
+            cleanup_old_query_patterns,
+            get_initialized_connection,
+            is_memory_configured,
+            save_query_pattern,
+        )
+
+        if not is_memory_configured():
+            return ""
+
+        tool_names = _extract_tool_names(messages)
+
+        # Save query pattern
+        try:
+            conn = get_initialized_connection()
+            try:
+                save_query_pattern(conn, question=question, tool_names=",".join(tool_names))
+                cleanup_old_query_patterns(conn, keep=100)
+            finally:
+                conn.close()
+        except Exception:
+            logger.debug("Failed to save query pattern", exc_info=True)
+
+        # Check for incident suggestion
+        return detect_incident_suggestion(tool_names, response_text)
+    except Exception:
+        logger.debug("Post-response actions failed", exc_info=True)
+        return ""
+
+
 def _get_tools() -> list[BaseTool]:
     """Collect all agent tools, conditionally including optional integrations."""
     tools: list[BaseTool] = [
@@ -515,6 +586,9 @@ def build_agent(
         .replace("{retention_cutoff}", (now - timedelta(days=90)).strftime("%Y-%m-%d"))
     )
 
+    # Inject dynamic context from memory store (best-effort, never fails build)
+    system_prompt += _get_memory_context()
+
     checkpointer = MemorySaver()
 
     agent: AgentGraph = create_agent(
@@ -607,8 +681,15 @@ async def invoke_agent(
             settings.openai_model,
         )
 
+    response_text = "No response generated."
     for msg in reversed(messages):
         if isinstance(msg, AIMessage) and isinstance(msg.content, str) and msg.content:
-            return msg.content
+            response_text = msg.content
+            break
 
-    return "No response generated."
+    # Post-response: save query pattern + suggest incident recording
+    suggestion = _post_response_actions(messages, message, response_text)
+    if suggestion:
+        response_text += suggestion
+
+    return response_text

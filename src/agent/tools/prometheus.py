@@ -277,6 +277,27 @@ def _check_negative_max_over_time(query: str, data: PrometheusResponse) -> str:
     return ""
 
 
+def _get_baseline_enrichment(data: PrometheusResponse) -> str:
+    """Extract metric names from Prometheus results and enrich with baseline context.
+
+    Returns baseline context string or empty string if not available.
+    """
+    try:
+        from src.memory.context import enrich_with_baseline_context
+
+        results = data.get("data", {}).get("result", [])
+        metric_names: list[str] = []
+        for series in results:
+            name = series.get("metric", {}).get("__name__", "")
+            if name:
+                metric_names.append(name)
+        if not metric_names:
+            return ""
+        return enrich_with_baseline_context("", metric_names)
+    except Exception:
+        return ""
+
+
 async def _query_prometheus(endpoint: str, params: dict[str, str]) -> PrometheusResponse:
     """Make an HTTP request to the Prometheus API."""
     url = f"{get_settings().prometheus_url}{endpoint}"
@@ -448,7 +469,8 @@ async def prometheus_instant_query(query: str, time: str | None = None) -> str:
     except httpx.TimeoutException as e:
         raise ToolException(f"Prometheus query timed out after {DEFAULT_TIMEOUT_SECONDS}s: {e}") from e
 
-    return _format_result(data) + _check_negative_max_over_time(query, data)
+    result = _format_result(data) + _check_negative_max_over_time(query, data)
+    return result + _get_baseline_enrichment(data)
 
 
 prometheus_instant_query.description = TOOL_DESCRIPTION_INSTANT

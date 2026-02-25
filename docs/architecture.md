@@ -282,7 +282,7 @@ Phase 7 adds persistent memory via SQLite, enabling the agent to accumulate know
 SQLite database at the path configured by `MEMORY_DB_PATH` (empty = disabled). Uses WAL mode for concurrent reads,
 `CREATE TABLE IF NOT EXISTS` for idempotent schema initialization, and parameterized queries to prevent SQL injection.
 
-### Schema (3 tables)
+### Schema (4 tables)
 
 - **`reports`** — archived weekly reports with full markdown, JSON data, and summary metrics (active alerts, SLO
   failures, log errors, cost). Indexed by `generated_at`.
@@ -290,6 +290,8 @@ SQLite database at the path configured by `MEMORY_DB_PATH` (empty = disabled). U
   linkage. Indexed by `alert_name` and `created_at`.
 - **`metric_baselines`** — computed avg/p95/min/max per metric over a lookback window. Indexed by
   `(metric_name, computed_at)`.
+- **`query_patterns`** — recent user questions and tools used, enabling the agent to see common query topics.
+  Indexed by `created_at`. Auto-cleaned to keep the most recent 100 entries.
 
 ### Agent Tools (4, conditional on `MEMORY_DB_PATH`)
 
@@ -302,7 +304,14 @@ SQLite database at the path configured by `MEMORY_DB_PATH` (empty = disabled). U
 
 - **Report generator** — after generation, auto-archives the report to the memory store and computes metric baselines
   from Prometheus. Loads the previous report as context for the LLM narrative.
-- **Agent** — memory tools are conditionally registered alongside other optional integrations.
+- **Agent build-time** — `_get_memory_context()` loads open incidents and recent query patterns into the system prompt
+  so the agent starts each session aware of ongoing issues and common user topics.
+- **Agent post-response** — `_post_response_actions()` saves query patterns (question + tools used) and detects
+  investigation conversations that warrant recording as incidents (suggests `memory_record_incident`).
+- **Prometheus tool** — `prometheus_instant_query` enriches results with baseline context (avg/p95/min/max) when
+  baselines exist for the queried metric.
+- **Grafana alerts tool** — `grafana_get_alerts` appends past incident history for any active alert names found in
+  the memory store, giving the agent immediate context about recurring issues.
 - **System prompt** — guidance for when to use memory tools (search incidents before investigating, record root causes,
   check baselines for anomaly detection).
 
@@ -311,9 +320,10 @@ SQLite database at the path configured by `MEMORY_DB_PATH` (empty = disabled). U
 ```
 src/memory/
 ├── __init__.py
-├── store.py        # Connection management, schema init, typed CRUD
-├── models.py       # TypedDicts: ReportRecord, IncidentRecord, BaselineRecord
+├── store.py        # Connection management, schema init, typed CRUD (4 tables)
+├── models.py       # TypedDicts: ReportRecord, IncidentRecord, BaselineRecord, QueryPatternRecord
 ├── tools.py        # 4 LangChain tools + get_memory_tools() for conditional registration
+├── context.py      # Build-time & per-request context: enrichment, incident suggestion
 └── baselines.py    # Metric baseline computation from Prometheus
 ```
 
