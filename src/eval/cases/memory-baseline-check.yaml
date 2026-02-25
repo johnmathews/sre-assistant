@@ -1,0 +1,18 @@
+id: memory-baseline-check
+description: "Agent should check metric baselines when asked if a value is normal"
+question: "Is 85% CPU usage on the media VM normal?"
+
+required_services: []
+
+expected_tools:
+  must_call: [memory_check_baseline]
+  may_call: [prometheus_instant_query, memory_search_incidents]
+  must_not_call: []
+
+mocks: []
+
+rubric: |
+  The answer should:
+  1. Call memory_check_baseline to compare 0.85 against the baseline
+  2. Report whether the value is within normal range, above p95, etc.
+  3. Provide context about what the baseline values are

@@ -10,6 +10,7 @@ import respx
 from src.report.email import send_report_email
 from src.report.generator import (
     _collect_alert_summary,
+    _collect_backup_health,
     _collect_cost_data,
     _collect_loki_errors,
     _collect_slo_status,
@@ -157,23 +158,52 @@ class TestCollectCostData:
         assert result["estimated_cost_usd"] == 0.085
 
 
+def _loki_vector(entries: dict[str, float]) -> dict[str, object]:
+    """Build a Loki instant query vector response."""
+    return {
+        "status": "success",
+        "data": {
+            "resultType": "vector",
+            "result": [
+                {"metric": {"service_name": name}, "value": [1708300000, str(val)]} for name, val in entries.items()
+            ],
+        },
+    }
+
+
+def _loki_stream(service: str, lines: list[str]) -> dict[str, object]:
+    """Build a Loki query_range stream response."""
+    return {
+        "status": "success",
+        "data": {
+            "resultType": "streams",
+            "result": [
+                {
+                    "stream": {"service_name": service, "detected_level": "error"},
+                    "values": [["1708300000000000000", line] for line in lines],
+                }
+            ],
+        },
+    }
+
+
 class TestCollectLokiErrors:
     @respx.mock
-    async def test_success(self, mock_settings: Any) -> None:
+    async def test_success_with_previous_period(self, mock_settings: Any) -> None:
+        """Current + previous period queries both succeed."""
+        # Two instant queries (current, previous) + sample queries for top-5
         respx.get("http://loki.test:3100/loki/api/v1/query").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "status": "success",
-                    "data": {
-                        "resultType": "vector",
-                        "result": [
-                            {"metric": {"service_name": "traefik"}, "value": [1708300000, "85"]},
-                            {"metric": {"service_name": "jellyfin"}, "value": [1708300000, "10"]},
-                        ],
-                    },
-                },
-            )
+            side_effect=[
+                httpx.Response(200, json=_loki_vector({"traefik": 85, "jellyfin": 10})),
+                httpx.Response(200, json=_loki_vector({"traefik": 60, "jellyfin": 15})),
+            ]
+        )
+        # Error sample queries (one per top-5 service, 2 services here)
+        respx.get("http://loki.test:3100/loki/api/v1/query_range").mock(
+            side_effect=[
+                httpx.Response(200, json=_loki_stream("traefik", ["502 Bad Gateway"])),
+                httpx.Response(200, json=_loki_stream("jellyfin", ["connection refused"])),
+            ]
         )
 
         result = await _collect_loki_errors(7)
@@ -181,11 +211,116 @@ class TestCollectLokiErrors:
         assert result is not None
         assert result["errors_by_service"] == {"traefik": 85, "jellyfin": 10}
         assert result["total_errors"] == 95
+        assert result.get("previous_total_errors") == 75
+        assert result.get("error_samples", {}).get("traefik") == "502 Bad Gateway"
+
+    @respx.mock
+    async def test_normalizes_duplicate_service_names(self, mock_settings: Any) -> None:
+        """node_exporter and node-exporter should merge."""
+        respx.get("http://loki.test:3100/loki/api/v1/query").mock(
+            side_effect=[
+                httpx.Response(200, json=_loki_vector({"node_exporter": 500, "node-exporter": 14})),
+                httpx.Response(200, json=_loki_vector({})),
+            ]
+        )
+        respx.get("http://loki.test:3100/loki/api/v1/query_range").mock(
+            return_value=httpx.Response(200, json=_loki_stream("node_exporter", ["scrape failed"]))
+        )
+
+        result = await _collect_loki_errors(7)
+
+        assert result is not None
+        # Merged under the higher-count name
+        assert "node_exporter" in result["errors_by_service"]
+        assert result["errors_by_service"]["node_exporter"] == 514
+        assert "node-exporter" not in result["errors_by_service"]
+
+    @respx.mock
+    async def test_previous_period_failure_graceful(self, mock_settings: Any) -> None:
+        """Previous period query failure doesn't crash — just omits comparison."""
+        respx.get("http://loki.test:3100/loki/api/v1/query").mock(
+            side_effect=[
+                httpx.Response(200, json=_loki_vector({"traefik": 85})),
+                httpx.Response(503),  # previous period fails
+            ]
+        )
+        respx.get("http://loki.test:3100/loki/api/v1/query_range").mock(
+            return_value=httpx.Response(200, json=_loki_stream("traefik", ["error"]))
+        )
+
+        result = await _collect_loki_errors(7)
+
+        assert result is not None
+        assert result["total_errors"] == 85
+        assert result.get("previous_total_errors") is None
 
     async def test_loki_not_configured(self, mock_settings: Any) -> None:
         mock_settings.loki_url = ""
         result = await _collect_loki_errors(7)
         assert result is None
+
+
+class TestCollectBackupHealth:
+    @respx.mock
+    async def test_success(self, mock_settings: Any) -> None:
+        now_ts = int(__import__("datetime").datetime.now(__import__("datetime").UTC).timestamp())
+        respx.get("https://pbs.test:8007/api2/json/status/datastore-usage").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "store": "backups",
+                            "total": 2 * 1024**4,
+                            "used": 1024**4,
+                            "avail": 1024**4,
+                        }
+                    ]
+                },
+            )
+        )
+        respx.get("https://pbs.test:8007/api2/json/admin/datastore/backups/groups").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "backup-type": "vm",
+                            "backup-id": "100",
+                            "last-backup": now_ts - 3600,
+                            "backup-count": 10,
+                        },
+                        {
+                            "backup-type": "ct",
+                            "backup-id": "200",
+                            "last-backup": now_ts - 172800,
+                            "backup-count": 5,
+                        },
+                    ]
+                },
+            )
+        )
+
+        result = await _collect_backup_health(7)
+
+        assert result is not None
+        assert len(result["datastores"]) == 1
+        assert result["datastores"][0]["store"] == "backups"
+        assert result["datastores"][0]["usage_percent"] == 50.0
+        assert result["total_count"] == 2
+        assert result["stale_count"] == 1  # ct/200 is >24h old
+
+    async def test_pbs_not_configured(self, mock_settings: Any) -> None:
+        mock_settings.pbs_url = ""
+        result = await _collect_backup_health(7)
+        assert result is None
+
+    @respx.mock
+    async def test_pbs_down_raises(self, mock_settings: Any) -> None:
+        respx.get("https://pbs.test:8007/api2/json/status/datastore-usage").mock(return_value=httpx.Response(503))
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await _collect_backup_health(7)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +335,7 @@ class TestCollectReportData:
         respx.get("http://grafana.test:3000/api/v1/provisioning/alert-rules").mock(return_value=httpx.Response(503))
         respx.get("http://prometheus.test:9090/api/v1/query").mock(return_value=httpx.Response(503))
         respx.get("http://loki.test:3100/loki/api/v1/query").mock(return_value=httpx.Response(503))
+        respx.get("https://pbs.test:8007/api2/json/status/datastore-usage").mock(return_value=httpx.Response(503))
 
         data = await collect_report_data(7)
 
@@ -209,6 +345,7 @@ class TestCollectReportData:
         assert data["tool_usage"] is None
         assert data["cost"] is None
         assert data["loki_errors"] is None
+        assert data["backup_health"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -231,9 +368,13 @@ class TestGenerateReport:
         respx.get("http://prometheus.test:9090/api/v1/query").mock(
             return_value=httpx.Response(200, json=_prom_response(_prom_scalar(1.0)))
         )
-        # Loki
+        # Loki (current + previous period)
         respx.get("http://loki.test:3100/loki/api/v1/query").mock(
             return_value=httpx.Response(200, json={"status": "success", "data": {"resultType": "vector", "result": []}})
+        )
+        # PBS
+        respx.get("https://pbs.test:8007/api2/json/status/datastore-usage").mock(
+            return_value=httpx.Response(200, json={"data": []})
         )
 
         # Mock LLM
@@ -262,6 +403,7 @@ class TestGenerateReport:
         respx.get("http://grafana.test:3000/api/v1/provisioning/alert-rules").mock(return_value=httpx.Response(503))
         respx.get("http://prometheus.test:9090/api/v1/query").mock(return_value=httpx.Response(503))
         respx.get("http://loki.test:3100/loki/api/v1/query").mock(return_value=httpx.Response(503))
+        respx.get("https://pbs.test:8007/api2/json/status/datastore-usage").mock(return_value=httpx.Response(503))
 
         with patch("src.report.generator.ChatOpenAI") as mock_llm_cls:
             mock_llm = MagicMock()
@@ -360,6 +502,9 @@ class TestReportEndpoint:
         )
         respx.get("http://loki.test:3100/loki/api/v1/query").mock(
             return_value=httpx.Response(200, json={"status": "success", "data": {"resultType": "vector", "result": []}})
+        )
+        respx.get("https://pbs.test:8007/api2/json/status/datastore-usage").mock(
+            return_value=httpx.Response(200, json={"data": []})
         )
         # Mock health endpoints for lifespan
         respx.get("http://prometheus.test:9090/-/healthy").mock(return_value=httpx.Response(200))

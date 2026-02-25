@@ -94,6 +94,7 @@ Conditional (config-dependent):
   - proxmox_* tools  (if PROXMOX_URL is set)
   - pbs_* tools      (if PBS_URL is set)
   - runbook_search   (if vector store directory exists)
+  - memory_* tools   (if MEMORY_DB_PATH is set)
 ```
 
 ## Settings Loading
@@ -109,7 +110,7 @@ get_settings() -> Settings()  [cached via @lru_cache]
 ```
 
 Each tool module imports `get_settings` independently. In tests, `conftest.py::mock_settings` patches `get_settings`
-at every import site (14 patch sites as of Phase 6).
+at every import site (16 patch sites as of Phase 7).
 
 ## Metrics Flow
 
@@ -235,13 +236,17 @@ POST /report {lookback_days: 7}
        -> collect_report_data(lookback_days)
             -> asyncio.gather(
                  _collect_alert_summary(),   # Grafana API
-                 _collect_slo_status(),      # Prometheus queries
+                 _collect_slo_status(),      # Prometheus (per-component availability)
                  _collect_tool_usage(),      # Prometheus queries
                  _collect_cost_data(),       # Prometheus queries
-                 _collect_loki_errors(),     # Loki API (if configured)
+                 _collect_loki_errors(),     # Loki (current + previous period + samples)
+                 _collect_backup_health(),   # PBS API (if configured)
                )
-       -> _generate_narrative(collected_data)  # Single LLM call
-       -> format_report_markdown(report_data)  # Pure function
+       -> _load_previous_report()              # Memory store (if configured)
+       -> _generate_narrative(collected, prev)  # Single LLM call with prior context
+       -> format_report_markdown(report_data)   # Pure function
+       -> _archive_report(report_data, md)      # Memory store (if configured)
+       -> _compute_post_report_baselines(days)  # Prometheus → Memory (if configured)
   -> send_report_email(markdown)  (if SMTP configured)
   -> REPORTS_TOTAL.labels(trigger="manual", status="success").inc()
   -> REPORT_DURATION.observe(elapsed)

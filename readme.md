@@ -34,6 +34,7 @@ Ansible playbooks) to answer operational questions, explain alerts, correlate ch
   - [Phase 4: SLI/SLO Dashboard \& Instrumentation](#phase-4-slislo-dashboard--instrumentation)
   - [Phase 5: Evaluation Framework](#phase-5-evaluation-framework)
   - [Phase 6: Weekly Reliability Report](#phase-6-weekly-reliability-report)
+  - [Phase 7: Agent Memory Store](#phase-7-agent-memory-store)
 - [Repository Structure](#repository-structure)
 - [Non-Goals](#non-goals)
 - [License](#license)
@@ -353,19 +354,20 @@ to use based on the question.
 
 ## Current Capabilities
 
-The assistant has **up to 23 tools** across 8 categories, depending on which integrations are configured:
+The assistant has **up to 27 tools** across 9 categories, depending on which integrations are configured:
 
 **Always available (6 tools):**
 - Prometheus — metric search, instant queries, range queries (3 tools)
 - Grafana — active alerts, alert rule definitions (2 tools)
 - Runbook RAG — semantic search over operational runbooks (1 tool)
 
-**Available when configured (16 tools):**
+**Available when configured (21 tools):**
 - TrueNAS SCALE — pool health, NFS/SMB shares, snapshots/replication, system status/alerts/disks, apps (5 tools, requires `TRUENAS_URL`)
 - HDD Power Status — power state summary with configurable duration and pool filter (1 tool, requires `TRUENAS_URL`)
 - Proxmox VE — guest listing, guest config, node status, task history (4 tools, requires `PROXMOX_URL`)
 - PBS — datastore status, backup groups, task history (3 tools, requires `PBS_URL`)
 - Loki — log queries, log metric aggregation, label discovery, change correlation timelines (4 tools, requires `LOKI_URL`)
+- Memory — incident search, incident recording, previous report retrieval, baseline checking (4 tools, requires `MEMORY_DB_PATH`)
 
 **Questions it can answer today:**
 - "Why is CPU high on the Jellyfin VM?"
@@ -380,6 +382,9 @@ The assistant has **up to 23 tools** across 8 categories, depending on which int
 - "Are the HDDs spun down?"
 - "What's my peak internet download speed this week?"
 - "How many WiFi clients are connected?"
+- "Has this alert happened before? What was the root cause?"
+- "Is 85% CPU normal for this host?"
+- "What did last week's reliability report say?"
 
 **Artifacts it can generate:**
 - Root cause analysis (RCA) drafts
@@ -664,6 +669,30 @@ usage, estimated cost, and component health — all exposed as Prometheus metric
 via direct API queries + single LLM narrative. Delivered via email (Gmail SMTP) on a configurable cron schedule
 or on-demand via `POST /report`.
 
+### Phase 7: Agent Memory Store
+
+- Persistent SQLite memory for reports, incidents, and metric baselines
+- Enables cross-session knowledge: "has this happened before?", "what did last week's report say?"
+- **Deliverable:** Agent accumulates useful knowledge over time
+
+#### Build steps
+
+1. ~~**Database foundation** — `src/memory/store.py`: SQLite connection management with WAL mode, idempotent schema
+   init (3 tables: reports, incidents, metric_baselines), typed CRUD functions. `src/memory/models.py`: TypedDicts
+   for all record types. `MEMORY_DB_PATH` config setting (empty = disabled).~~
+2. ~~**Report archive** — Auto-save reports to memory store after generation. Load previous report as LLM narrative
+   context. `memory_get_previous_report` agent tool for retrieving archived reports.~~
+3. ~~**Incident journal** — `memory_search_incidents` and `memory_record_incident` agent tools. Search by keyword,
+   alert name, or service. Record root causes and resolutions during investigations.~~
+4. ~~**Metric baselines** — `src/memory/baselines.py`: compute avg/p95/min/max from Prometheus after each report.
+   `memory_check_baseline` agent tool to assess if a metric value is normal.~~
+5. ~~**Documentation & tests** — Updated architecture.md, tool-reference.md, code-flow.md, readme.md. 41 new tests
+   (24 unit + 17 integration). 3 new eval cases. System prompt updated with memory tool guidance.~~
+
+**Phase 7 complete.** The agent has persistent memory via SQLite. Weekly reports are archived and referenced
+in future narratives. Incidents can be recorded and searched across sessions. Metric baselines enable anomaly
+detection. All features degrade gracefully when `MEMORY_DB_PATH` is not set.
+
 ### Deployment
 
 The agent runs as Docker containers on the Infra VM, deployed via the existing
@@ -711,7 +740,12 @@ homelab-sre-assistant/
 │   │   ├── runner.py             # Core runner (settings patching, mocks, scoring)
 │   │   ├── judge.py              # LLM-as-judge answer quality scoring
 │   │   ├── report.py             # Terminal report formatting
-│   │   └── cases/                # 17 YAML eval cases
+│   │   └── cases/                # 20 YAML eval cases
+│   ├── memory/
+│   │   ├── store.py              # SQLite connection, schema, CRUD
+│   │   ├── models.py             # TypedDicts for memory records
+│   │   ├── tools.py              # 4 LangChain tools (conditional on MEMORY_DB_PATH)
+│   │   └── baselines.py          # Metric baseline computation from Prometheus
 │   ├── report/
 │   │   ├── generator.py          # Direct API collectors + LLM narrative + markdown formatter
 │   │   ├── email.py              # SMTP email delivery (STARTTLS)
@@ -726,7 +760,7 @@ homelab-sre-assistant/
 │   └── install-hooks.sh          # Install git pre-push hook
 ├── dashboards/
 │   └── sre-assistant-sli.json    # Grafana SLI/SLO dashboard
-├── tests/                        # Unit + integration tests (506 passing)
+├── tests/                        # Unit + integration tests (578 passing)
 ├── docs/                         # Design documentation
 │   ├── architecture.md           # System overview, data flow, deployment
 │   ├── tool-reference.md         # All tools with inputs and examples

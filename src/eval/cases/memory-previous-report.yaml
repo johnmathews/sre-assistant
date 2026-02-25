@@ -1,0 +1,18 @@
+id: memory-previous-report
+description: "Agent should retrieve previous report when asked about past trends"
+question: "What did last week's reliability report say about error rates?"
+
+required_services: []
+
+expected_tools:
+  must_call: [memory_get_previous_report]
+  may_call: [memory_search_incidents]
+  must_not_call: []
+
+mocks: []
+
+rubric: |
+  The answer should:
+  1. Call memory_get_previous_report to retrieve the last archived report
+  2. Summarize the relevant findings about error rates from that report
+  3. If no previous report exists, clearly state that

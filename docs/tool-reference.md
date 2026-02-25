@@ -1,6 +1,6 @@
 # Tool Reference
 
-The agent has up to 22 tools across 8 categories. Tools are conditionally registered based on configuration.
+The agent has up to 26 tools across 9 categories. Tools are conditionally registered based on configuration.
 
 ## Conditional Registration
 
@@ -16,6 +16,7 @@ that tool group is skipped entirely (no failed connections, no error logs).
 | TrueNAS SCALE | `truenas_pool_status`, `truenas_list_shares`, `truenas_snapshots`, `truenas_system_status`, `truenas_apps` | `TRUENAS_URL` | No |
 | HDD Power Status | `hdd_power_status` | `TRUENAS_URL` | No |
 | PBS | `pbs_datastore_status`, `pbs_list_backups`, `pbs_list_tasks` | `PBS_URL` | No |
+| Memory | `memory_search_incidents`, `memory_record_incident`, `memory_get_previous_report`, `memory_check_baseline` | `MEMORY_DB_PATH` | No |
 | RAG | `runbook_search` | Chroma vector store on disk | Yes (after `make ingest`) |
 
 Health checks (`GET /health`) also follow this pattern — only configured services are checked.
@@ -216,6 +217,40 @@ List recent PBS tasks (backup jobs, GC, verification).
 - **Input:** `limit` (int, default 20), `errors_only` (bool, default false)
 - **Example questions:** "Did last night's backup succeed?", "Any failed backup tasks?"
 - **Returns:** Task type, status, user, start/end time, worker ID
+
+## Agent Memory (enabled when `MEMORY_DB_PATH` is set)
+
+### memory_search_incidents
+
+Search past incidents recorded in the agent's memory store.
+
+- **Input:** `query` (optional keyword), `alert_name` (optional exact match), `service` (optional substring), `limit` (int, default 10)
+- **Example questions:** "Has this HighCPU alert happened before?", "What incidents involved traefik?"
+- **Returns:** Matching incidents with title, description, root cause, resolution, severity, and status
+
+### memory_record_incident
+
+Record a new incident in the agent's memory store.
+
+- **Input:** `title` (string), `description` (string), `alert_name` (optional), `root_cause` (optional), `resolution` (optional), `severity` (info/warning/critical), `services` (comma-separated)
+- **Example use:** After identifying a root cause during investigation, record it for future reference
+- **Returns:** Confirmation with incident ID
+
+### memory_get_previous_report
+
+Retrieve the most recent archived weekly reliability report(s).
+
+- **Input:** `count` (int, default 1, max 10)
+- **Example questions:** "What did last week's report say?", "Show me the last 3 reports"
+- **Returns:** Full report markdown (count=1) or summary with key metrics (count>1)
+
+### memory_check_baseline
+
+Check whether a metric value is within the normal range based on computed baselines.
+
+- **Input:** `metric_name` (string), `current_value` (float), `labels` (optional JSON string)
+- **Example questions:** "Is 85% CPU normal for the media VM?"
+- **Returns:** Baseline statistics (avg, p95, min, max) and assessment (WITHIN NORMAL RANGE / ABOVE P95 / BELOW MIN)
 
 ## RAG (enabled when vector store exists)
 

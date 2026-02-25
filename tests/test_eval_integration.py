@@ -126,11 +126,14 @@ class TestEvalCaseYamlParsing:
         ids = [c.id for c in cases]
         assert len(ids) == len(set(ids)), f"Duplicate case IDs: {[x for x in ids if ids.count(x) > 1]}"
 
-    def test_all_cases_have_at_least_one_mock(self) -> None:
+    def test_all_non_memory_cases_have_at_least_one_mock(self) -> None:
         from src.eval.loader import load_eval_cases
 
         cases = load_eval_cases()
         for case in cases:
+            # Memory-only cases use local SQLite — no HTTP mocks needed
+            if case.id.startswith("memory-"):
+                continue
             # Cases with only prometheus/grafana (always-on) still need mocks
             assert len(case.mocks) > 0, f"Case {case.id} has no mocks"
 

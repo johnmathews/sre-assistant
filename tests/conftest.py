@@ -93,6 +93,8 @@ def mock_settings() -> Generator[Any]:
             "report_lookback_days": 7,
             # Conversation history
             "conversation_history_dir": "",
+            # Agent memory store
+            "memory_db_path": "",
         },
     )()
     with (
@@ -110,5 +112,7 @@ def mock_settings() -> Generator[Any]:
         patch("src.report.generator.get_settings", return_value=fake_settings),
         patch("src.report.email.get_settings", return_value=fake_settings),
         patch("src.report.scheduler.get_settings", return_value=fake_settings),
+        patch("src.memory.store.get_settings", return_value=fake_settings),
+        patch("src.memory.baselines.get_settings", return_value=fake_settings),
     ):
         yield fake_settings

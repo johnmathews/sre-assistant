@@ -205,7 +205,7 @@ uv run pytest tests/test_eval_integration.py -v    # Integration tests (free)
 
 ### Eval Cases
 
-17 cases across 7 categories: alerts (4), Prometheus (5), Proxmox (2), PBS (1), TrueNAS (2), Loki (2), cross-tool (1).
+20 cases across 8 categories: alerts (4), Prometheus (5), Proxmox (2), PBS (1), TrueNAS (2), Loki (2), memory (3), cross-tool (1).
 Cases are YAML files in `src/eval/cases/`.
 
 ## Weekly Reliability Report
@@ -226,16 +226,24 @@ The report module queries APIs **directly** (not through the LangChain agent) be
 collect_report_data(lookback_days)
   |
   +-- _collect_alert_summary()      → Grafana API (rules + active alerts)
-  +-- _collect_slo_status()         → Prometheus (p95, tool success, LLM errors, availability)
+  +-- _collect_slo_status()         → Prometheus (p95, tool success, LLM errors, per-component availability)
   +-- _collect_tool_usage()         → Prometheus (tool calls by name, errors)
   +-- _collect_cost_data()          → Prometheus (tokens, estimated cost)
-  +-- _collect_loki_errors()        → Loki (errors by service, if configured)
+  +-- _collect_loki_errors()        → Loki (errors by service + week-over-week delta + error samples)
+  +-- _collect_backup_health()      → PBS (datastore usage + backup freshness)
+  |
+  v
+_load_previous_report()             → Memory store (previous report for context, if configured)
   |
   v
 _generate_narrative(collected_data)  → Single LLM call for executive summary
   |
   v
-format_report_markdown(report_data)  → Markdown with 6 sections
+format_report_markdown(report_data)  → Markdown with 7 sections
+  |
+  v
+_archive_report()                    → Memory store (auto-save, if configured)
+_compute_post_report_baselines()     → Memory store (metric baselines, if configured)
 ```
 
 All collectors run concurrently via `asyncio.gather()`, each wrapped in try/except. A collector failure produces
@@ -243,12 +251,13 @@ All collectors run concurrently via `asyncio.gather()`, each wrapped in try/exce
 
 ### Report Sections
 
-1. **Executive Summary** — LLM-generated 2-3 paragraph narrative
+1. **Executive Summary** — LLM-generated bullet points (references previous report if available)
 2. **Alert Summary** — total rules, active alerts, severity breakdown
-3. **SLO Status** — table with target/actual/pass-fail for each SLI
-4. **Tool Usage** — table with per-tool call counts and error rates
+3. **SLO Status** — table with target/actual/pass-fail for each SLI + per-component availability
+4. **Tool Usage** — table with per-tool call counts and error rates (active tools only)
 5. **Cost & Token Usage** — prompt/completion tokens and estimated USD
-6. **Log Error Summary** — error counts by service (if Loki configured)
+6. **Log Error Summary** — error counts by service with week-over-week delta and error samples (if Loki configured)
+7. **Backup Health** — datastore usage and backup freshness with stale backup alerts (if PBS configured)
 
 ### Delivery
 
@@ -264,11 +273,55 @@ All collectors run concurrently via `asyncio.gather()`, each wrapped in try/exce
 | `sre_assistant_reports_total` | Counter | `trigger` (scheduled/manual), `status` (success/error) |
 | `sre_assistant_report_duration_seconds` | Histogram | — |
 
+## Agent Memory Store
+
+Phase 7 adds persistent memory via SQLite, enabling the agent to accumulate knowledge across sessions.
+
+### Storage
+
+SQLite database at the path configured by `MEMORY_DB_PATH` (empty = disabled). Uses WAL mode for concurrent reads,
+`CREATE TABLE IF NOT EXISTS` for idempotent schema initialization, and parameterized queries to prevent SQL injection.
+
+### Schema (3 tables)
+
+- **`reports`** — archived weekly reports with full markdown, JSON data, and summary metrics (active alerts, SLO
+  failures, log errors, cost). Indexed by `generated_at`.
+- **`incidents`** — incident journal with title, description, root cause, resolution, severity, services, and session
+  linkage. Indexed by `alert_name` and `created_at`.
+- **`metric_baselines`** — computed avg/p95/min/max per metric over a lookback window. Indexed by
+  `(metric_name, computed_at)`.
+
+### Agent Tools (4, conditional on `MEMORY_DB_PATH`)
+
+- `memory_search_incidents` — search past incidents by keyword, alert name, or service
+- `memory_record_incident` — record a new incident during investigation
+- `memory_get_previous_report` — retrieve archived weekly report(s)
+- `memory_check_baseline` — check if a metric value is within the normal range
+
+### Integration Points
+
+- **Report generator** — after generation, auto-archives the report to the memory store and computes metric baselines
+  from Prometheus. Loads the previous report as context for the LLM narrative.
+- **Agent** — memory tools are conditionally registered alongside other optional integrations.
+- **System prompt** — guidance for when to use memory tools (search incidents before investigating, record root causes,
+  check baselines for anomaly detection).
+
+### Source Layout
+
+```
+src/memory/
+├── __init__.py
+├── store.py        # Connection management, schema init, typed CRUD
+├── models.py       # TypedDicts: ReportRecord, IncidentRecord, BaselineRecord
+├── tools.py        # 4 LangChain tools + get_memory_tools() for conditional registration
+└── baselines.py    # Metric baseline computation from Prometheus
+```
+
 ## Configuration
 
 Settings are loaded from environment variables via `pydantic-settings`. The `Settings` class in `src/config.py` defines
-all configuration with sensible defaults. Optional integrations (TrueNAS, Loki, Proxmox VE, PBS) default to empty
-strings, which disables their tools.
+all configuration with sensible defaults. Optional integrations (TrueNAS, Loki, Proxmox VE, PBS, Memory Store) default
+to empty strings, which disables their tools.
 
 ### Conversation History Persistence
 

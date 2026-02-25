@@ -5,12 +5,17 @@ from typing import Any
 from src.report.email import is_email_configured
 from src.report.generator import (
     AlertSummaryData,
+    BackupGroupHealth,
+    BackupHealthData,
     CostData,
+    DatastoreHealth,
     LokiErrorSummary,
     ReportData,
     SLOStatusData,
     ToolUsageData,
+    _aggregate_by_normalized_name,
     _format_slo_row,
+    _normalize_service_name,
     format_report_markdown,
 )
 
@@ -163,6 +168,196 @@ class TestFormatSloRow:
     def test_none_value(self) -> None:
         row = _format_slo_row("Availability", "> 99.5%", None)
         assert "N/A" in row
+
+
+class TestNormalizeServiceName:
+    def test_hyphen_to_underscore(self) -> None:
+        assert _normalize_service_name("node-exporter") == "node_exporter"
+
+    def test_already_underscore(self) -> None:
+        assert _normalize_service_name("node_exporter") == "node_exporter"
+
+    def test_no_separator(self) -> None:
+        assert _normalize_service_name("traefik") == "traefik"
+
+
+class TestAggregateByNormalizedName:
+    def test_merges_hyphen_underscore_variants(self) -> None:
+        raw = {"node_exporter": 582, "node-exporter": 14}
+        merged = _aggregate_by_normalized_name(raw)
+        # node_exporter has the higher count, so it's the canonical name
+        assert merged == {"node_exporter": 596}
+
+    def test_no_duplicates_unchanged(self) -> None:
+        raw = {"traefik": 120, "jellyfin": 5}
+        assert _aggregate_by_normalized_name(raw) == raw
+
+    def test_empty(self) -> None:
+        assert _aggregate_by_normalized_name({}) == {}
+
+
+class TestFormatSloRowHumanReadable:
+    """Tests that _format_slo_row produces human-readable values with units."""
+
+    def test_percentage_target_shows_percent(self) -> None:
+        row = _format_slo_row("Availability", "> 99.5%", 0.9997)
+        assert "99.97%" in row
+
+    def test_seconds_target_shows_seconds(self) -> None:
+        row = _format_slo_row("P95 Latency", "< 15s", 16.5, higher_is_better=False)
+        assert "16.50s" in row
+
+
+class TestFormatLokiWithDelta:
+    def test_week_over_week_delta_up(self) -> None:
+        data = _complete_report_data()
+        data["loki_errors"] = LokiErrorSummary(
+            errors_by_service={"traefik": 120},
+            total_errors=120,
+            previous_total_errors=80,
+            previous_errors_by_service={"traefik": 80},
+        )
+        md = format_report_markdown(data)
+        assert "up 40" in md
+        assert "vs Prev" in md
+
+    def test_week_over_week_delta_down(self) -> None:
+        data = _complete_report_data()
+        data["loki_errors"] = LokiErrorSummary(
+            errors_by_service={"traefik": 50},
+            total_errors=50,
+            previous_total_errors=100,
+            previous_errors_by_service={"traefik": 100},
+        )
+        md = format_report_markdown(data)
+        assert "down 50" in md
+
+    def test_new_service_delta(self) -> None:
+        data = _complete_report_data()
+        data["loki_errors"] = LokiErrorSummary(
+            errors_by_service={"traefik": 120},
+            total_errors=120,
+            previous_total_errors=0,
+            previous_errors_by_service={},
+        )
+        md = format_report_markdown(data)
+        assert "new" in md
+
+    def test_no_previous_data_omits_delta_column(self) -> None:
+        data = _complete_report_data()
+        data["loki_errors"] = LokiErrorSummary(
+            errors_by_service={"traefik": 120},
+            total_errors=120,
+        )
+        md = format_report_markdown(data)
+        assert "vs Prev" not in md
+
+
+class TestFormatErrorSamples:
+    def test_error_samples_shown(self) -> None:
+        data = _complete_report_data()
+        data["loki_errors"] = LokiErrorSummary(
+            errors_by_service={"traefik": 120},
+            total_errors=120,
+            error_samples={"traefik": 'level=error msg="502 Bad Gateway"'},
+        )
+        md = format_report_markdown(data)
+        assert "Top error samples:" in md
+        assert "502 Bad Gateway" in md
+
+
+class TestFormatComponentAvailability:
+    def test_degraded_components_shown(self) -> None:
+        data = _complete_report_data()
+        data["slo_status"] = SLOStatusData(
+            p95_latency_seconds=3.2,
+            tool_success_rate=0.997,
+            llm_error_rate=0.005,
+            availability=0.998,
+            component_availability={"prometheus": 1.0, "grafana": 0.995, "loki": 0.99},
+        )
+        md = format_report_markdown(data)
+        assert "Components with degraded availability:" in md
+        assert "grafana" in md
+        assert "loki" in md
+        # prometheus is at 100%, should not be listed as degraded
+        assert "prometheus: 100" not in md
+
+    def test_all_components_healthy(self) -> None:
+        data = _complete_report_data()
+        data["slo_status"] = SLOStatusData(
+            p95_latency_seconds=3.2,
+            tool_success_rate=0.997,
+            llm_error_rate=0.005,
+            availability=1.0,
+            component_availability={"prometheus": 1.0, "grafana": 1.0},
+        )
+        md = format_report_markdown(data)
+        assert "All components at 100% availability." in md
+
+
+class TestFormatBackupHealth:
+    def test_backup_section_shown(self) -> None:
+        data = _complete_report_data()
+        now_ts = int(__import__("datetime").datetime.now(__import__("datetime").UTC).timestamp())
+        data["backup_health"] = BackupHealthData(
+            datastores=[
+                DatastoreHealth(
+                    store="backups",
+                    total_bytes=2 * 1024**4,
+                    used_bytes=1024**4,
+                    usage_percent=50.0,
+                )
+            ],
+            backups=[
+                BackupGroupHealth(
+                    backup_type="vm",
+                    backup_id="100",
+                    last_backup_ts=now_ts - 3600,  # 1h ago, fresh
+                    backup_count=10,
+                    stale=False,
+                ),
+                BackupGroupHealth(
+                    backup_type="ct",
+                    backup_id="200",
+                    last_backup_ts=now_ts - 172800,  # 48h ago, stale
+                    backup_count=5,
+                    stale=True,
+                ),
+            ],
+            stale_count=1,
+            total_count=2,
+        )
+        md = format_report_markdown(data)
+        assert "## Backup Health" in md
+        assert "backups:" in md
+        assert "50.0% used" in md
+        assert "2 total, 1 stale" in md
+        assert "CT/200" in md
+
+    def test_backup_section_omitted_when_none(self) -> None:
+        data = _complete_report_data()
+        # backup_health not set (NotRequired field)
+        md = format_report_markdown(data)
+        assert "Backup Health" not in md
+
+    def test_all_backups_fresh(self) -> None:
+        data = _complete_report_data()
+        now_ts = int(__import__("datetime").datetime.now(__import__("datetime").UTC).timestamp())
+        data["backup_health"] = BackupHealthData(
+            datastores=[
+                DatastoreHealth(store="backups", total_bytes=1024**4, used_bytes=512 * 1024**3, usage_percent=50.0)
+            ],
+            backups=[
+                BackupGroupHealth(
+                    backup_type="vm", backup_id="100", last_backup_ts=now_ts - 3600, backup_count=10, stale=False
+                )
+            ],
+            stale_count=0,
+            total_count=1,
+        )
+        md = format_report_markdown(data)
+        assert "All backups are fresh" in md
 
 
 class TestIsEmailConfigured:

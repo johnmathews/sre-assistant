@@ -1,0 +1,18 @@
+id: memory-incident-search
+description: "Agent should search incident memory when asked about past occurrences of an alert"
+question: "Has the HighCPU alert on jellyfin happened before? What was the root cause?"
+
+required_services: []
+
+expected_tools:
+  must_call: [memory_search_incidents]
+  may_call: [grafana_get_alerts, memory_check_baseline]
+  must_not_call: []
+
+mocks: []
+
+rubric: |
+  The answer should:
+  1. Call memory_search_incidents to look for past HighCPU incidents
+  2. Report what was found (or that no matching incidents were found)
+  3. If past incidents exist, mention the root cause and resolution

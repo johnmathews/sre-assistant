@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # Host path is configured via bind mount in docker-compose, not here.
     conversation_history_dir: str = "/app/conversations"
 
+    # Agent memory store (optional — empty string means disabled)
+    memory_db_path: str = ""
+
     # Proxmox Backup Server API (optional — empty string means not configured)
     pbs_url: str = ""
     pbs_api_token: str = ""

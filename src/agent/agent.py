@@ -332,6 +332,20 @@ Loki queries — use `loki_metric_query`, NEVER `prometheus_instant_query`
 TrueNAS runs Alloy as an app, so TrueNAS app logs (containers) are available in Loki.
 Use `hostname` matching the TrueNAS host and `service_name` matching the app name to find logs.
 
+## Agent Memory (when configured)
+
+When memory tools are available:
+
+**When investigating alerts or anomalies:**
+- Search incident history first with `memory_search_incidents` to check for known patterns.
+- Check metric baselines with `memory_check_baseline` to determine if values are abnormal.
+
+**When you identify a root cause or resolution:**
+- Record it with `memory_record_incident` so it can be referenced in future investigations.
+
+**When asked about past reports or trends:**
+- Use `memory_get_previous_report` to retrieve previous findings.
+
 ## Guidelines
 
 - When unsure of a metric name, **search first** with `prometheus_search_metrics` to discover \
@@ -452,6 +466,19 @@ def _get_tools() -> list[BaseTool]:
         tools.append(runbook_search)
     except Exception:
         logger.warning("Runbook search tool unavailable — run 'make ingest' to build the vector store")
+
+    # Memory tools — only if MEMORY_DB_PATH is configured
+    try:
+        from src.memory.tools import get_memory_tools
+
+        memory_tools = get_memory_tools()
+        if memory_tools:
+            tools.extend(memory_tools)
+            logger.info("Memory tools enabled: %s", [t.name for t in memory_tools])
+        else:
+            logger.info("Memory tools disabled — MEMORY_DB_PATH not set")
+    except Exception:
+        logger.warning("Memory tools unavailable")
 
     return tools
 
