@@ -1,6 +1,6 @@
 id: prom-adguard-dns
 description: "Agent should query AdGuard DNS metrics for query rates per client"
-question: "Which device is making the most DNS queries right now?"
+question: "Show me a breakdown of DNS queries by device. Which device is making the most?"
 
 required_services: []
 
@@ -51,6 +51,5 @@ mocks:
 rubric: |
   The answer should:
   1. Identify johns-macbook as the top DNS query source
-  2. Show a ranking of clients by query volume
-  3. Use increase() or rate() to show recent query rate, not raw counter values
-  4. Identify clients by their client_name label
+  2. Show a ranking or listing of clients by query volume (johns-macbook > iphone > smart-tv)
+  3. Identify clients by their client_name (johns-macbook, iphone, smart-tv)

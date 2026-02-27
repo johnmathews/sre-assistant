@@ -1,6 +1,7 @@
 """Core eval runner — patches settings, mocks HTTP, invokes agent, scores results."""
 
 import logging
+import sys
 from typing import Any
 from unittest.mock import patch
 
@@ -147,10 +148,9 @@ async def run_eval_case(case: EvalCase, openai_api_key: str, openai_model: str) 
 
     # Prevent runbook_search from loading — it requires a vector store on disk.
     # RAG quality is tested separately; eval focuses on tool selection + answer quality.
-    runbook_patch = patch(
-        "src.agent.agent.runbook_search",
-        side_effect=ImportError("Disabled for eval"),
-    )
+    # Setting the module to None in sys.modules makes `from ... import` raise
+    # ImportError, which _get_tools() catches gracefully (tool never registered).
+    runbook_patch = patch.dict(sys.modules, {"src.agent.retrieval.runbooks": None})
 
     try:
         for p in patches:
@@ -172,7 +172,9 @@ async def run_eval_case(case: EvalCase, openai_api_key: str, openai_model: str) 
                         json=mock_def.body,  # pyright: ignore[reportArgumentType]
                     )
                 method_fn(url=mock_def.url).mock(return_value=response)
-            # Catch-all: unmocked routes return 503
+            # Let real OpenAI traffic pass through (evals use a real LLM)
+            router.route(host="api.openai.com").pass_through()
+            # Catch-all: unmocked infra routes return 503
             router.route().mock(return_value=httpx.Response(503, json={"error": "unmocked"}))
 
             agent = build_agent()

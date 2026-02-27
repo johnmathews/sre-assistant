@@ -39,7 +39,6 @@ mocks:
 
 rubric: |
   The answer should:
-  1. Use the homeassistant_sensor_power_w metric with the tech_shelf_power entity
-  2. Report a power consumption value (approximately 127W)
-  3. Reference the server rack or tech shelf — not individual VMs
-  4. NOT present node_hwmon_power_watt as real power consumption
+  1. Report a power consumption value of approximately 127W
+  2. Attribute the reading to the homelab, server rack, or tech shelf — not individual VMs
+  3. NOT confuse this with node_hwmon_power_watt or per-component IPMI readings

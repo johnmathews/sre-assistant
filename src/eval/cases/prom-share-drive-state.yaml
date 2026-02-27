@@ -53,7 +53,6 @@ mocks:
 
 rubric: |
   The answer should:
-  1. Report that most shares are OK (value 1)
-  2. Flag the backups share on infra as failed (value 0) — this needs investigation
+  1. Report that most shares are OK/healthy (value 1)
+  2. Flag the backups share on infra as failed or down (value 0) — needs attention
   3. Identify shares by mount name and the host they are mounted on
-  4. Suggest troubleshooting steps or reference the NFS runbook

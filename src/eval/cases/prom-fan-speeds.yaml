@@ -49,4 +49,4 @@ rubric: |
   The answer should:
   1. Report fan RPM values for the CPU fan and system fans
   2. Identify fans by name (CPU0_FAN, SYS_FAN1, SYS_FAN3 or equivalent)
-  3. Indicate whether the speeds are normal or concerning
+  3. Present the data clearly (e.g. a list or table of fan name → RPM)

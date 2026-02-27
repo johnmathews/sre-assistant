@@ -1,6 +1,6 @@
 id: prom-ups-status
 description: "Agent should query NUT UPS metrics for power protection status"
-question: "What's the UPS status? How much battery runtime do we have?"
+question: "Give me a full UPS status report — battery, runtime, and load."
 
 required_services: []
 
@@ -64,8 +64,7 @@ mocks:
 
 rubric: |
   The answer should:
-  1. Report the UPS is on-line/mains power (OL flag = 1, OB flag = 0)
-  2. Report battery charge at 100%
-  3. Convert runtime from seconds (2340) to minutes (~39 minutes)
-  4. Report the UPS load at 18% of capacity
-  5. Indicate this is a healthy UPS state
+  1. Report the UPS is on-line/mains power (OL flag active)
+  2. Report battery runtime, ideally converted from seconds (2340) to minutes (~39 min)
+  3. Report at least one of: battery charge (100%) or UPS load (18%)
+  4. Present the UPS as operational or healthy overall
