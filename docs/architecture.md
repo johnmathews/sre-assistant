@@ -74,9 +74,8 @@ HomeLab SRE Assistant
   +-- Chroma vector store (local, on-disk)
 ```
 
-Required: OpenAI API, Prometheus, Grafana.
-Optional: TrueNAS, Loki, Proxmox VE, PBS (tools are conditionally registered based on config).
-Local: Chroma vector store (rebuilt via `make ingest`).
+Required: OpenAI API, Prometheus, Grafana. Optional: TrueNAS, Loki, Proxmox VE, PBS (tools are conditionally registered
+based on config). Local: Chroma vector store (rebuilt via `make ingest`).
 
 ## Request Lifecycle
 
@@ -99,8 +98,8 @@ The Prometheus tools include defense-in-depth against common query mistakes:
 
 1. **System prompt guidance** (preventive) — the prompt template includes patterns for both positive and negative
    metrics, explaining that `max_over_time` on negative values returns the smallest magnitude, not the peak.
-2. **Tool output warnings** (reactive) — `prometheus_instant_query` detects when `max_over_time` is used with
-   negative result values (or wrapped in `abs()`), and appends a warning suggesting `min_over_time` + `abs()`.
+2. **Tool output warnings** (reactive) — `prometheus_instant_query` detects when `max_over_time` is used with negative
+   result values (or wrapped in `abs()`), and appends a warning suggesting `min_over_time` + `abs()`.
 3. **Improved empty-result messages** — when a query returns no data, the error message suggests checking retention
    limits, label filters, and whether an instant query with `*_over_time` would be more appropriate.
 
@@ -110,20 +109,20 @@ The assistant tracks its own reliability via Prometheus metrics, exposed at `GET
 
 ### Metrics
 
-| Metric | Type | Labels |
-|--------|------|--------|
-| `sre_assistant_request_duration_seconds` | Histogram | `endpoint` |
-| `sre_assistant_requests_total` | Counter | `endpoint`, `status` |
-| `sre_assistant_requests_in_progress` | Gauge | `endpoint` |
-| `sre_assistant_tool_call_duration_seconds` | Histogram | `tool_name` |
-| `sre_assistant_tool_calls_total` | Counter | `tool_name`, `status` |
-| `sre_assistant_llm_calls_total` | Counter | `status` |
-| `sre_assistant_llm_token_usage` | Counter | `type` (prompt/completion) |
-| `sre_assistant_llm_estimated_cost_dollars` | Counter | — |
-| `sre_assistant_component_healthy` | Gauge | `component` |
-| `sre_assistant_info` | Info | `version`, `model` |
-| `sre_assistant_reports_total` | Counter | `trigger` (scheduled/manual), `status` (success/error) |
-| `sre_assistant_report_duration_seconds` | Histogram | — |
+| Metric                                     | Type      | Labels                                                 |
+| ------------------------------------------ | --------- | ------------------------------------------------------ |
+| `sre_assistant_request_duration_seconds`   | Histogram | `endpoint`                                             |
+| `sre_assistant_requests_total`             | Counter   | `endpoint`, `status`                                   |
+| `sre_assistant_requests_in_progress`       | Gauge     | `endpoint`                                             |
+| `sre_assistant_tool_call_duration_seconds` | Histogram | `tool_name`                                            |
+| `sre_assistant_tool_calls_total`           | Counter   | `tool_name`, `status`                                  |
+| `sre_assistant_llm_calls_total`            | Counter   | `status`                                               |
+| `sre_assistant_llm_token_usage`            | Counter   | `type` (prompt/completion)                             |
+| `sre_assistant_llm_estimated_cost_dollars` | Counter   | —                                                      |
+| `sre_assistant_component_healthy`          | Gauge     | `component`                                            |
+| `sre_assistant_info`                       | Info      | `version`, `model`                                     |
+| `sre_assistant_reports_total`              | Counter   | `trigger` (scheduled/manual), `status` (success/error) |
+| `sre_assistant_report_duration_seconds`    | Histogram | —                                                      |
 
 ### Architecture
 
@@ -139,18 +138,19 @@ Three layers:
    choices:
    - **No tool code changes** — the handler hooks into LangGraph's callback system, so all 23 current tools (and any
      future tools) are automatically instrumented
-   - **Works inside the agent loop** — LangGraph may call multiple tools in sequence before returning; the callback
-     sees each individual call, unlike FastAPI middleware which only sees the outer request
+   - **Works inside the agent loop** — LangGraph may call multiple tools in sequence before returning; the callback sees
+     each individual call, unlike FastAPI middleware which only sees the outer request
    - **Error-resilient** — every callback method is wrapped in `try/except` so metrics never crash a request
    - **Cost estimation** — matches model name against a pricing table, falls back to conservative defaults for unknown
      models
 
-3. **FastAPI instrumentation** (`src/api/main.py`) — request-level timing/counting on `/ask` and `/report` +
-   `/metrics` endpoint + health gauge updates on `/health` + report metrics on `/report` + app info set at startup
+3. **FastAPI instrumentation** (`src/api/main.py`) — request-level timing/counting on `/ask` and `/report` + `/metrics`
+   endpoint + health gauge updates on `/health` + report metrics on `/report` + app info set at startup
 
 ### Grafana Dashboard
 
 `dashboards/sre-assistant-sli.json` provides a pre-built dashboard with:
+
 - SLO overview stats (availability, tool success rate, LLM success rate)
 - Request latency percentiles (p50/p90/p95/p99)
 - Tool call rates and errors by tool name
@@ -205,8 +205,8 @@ uv run pytest tests/test_eval_integration.py -v    # Integration tests (free)
 
 ### Eval Cases
 
-20 cases across 8 categories: alerts (4), Prometheus (5), Proxmox (2), PBS (1), TrueNAS (2), Loki (2), memory (3), cross-tool (1).
-Cases are YAML files in `src/eval/cases/`.
+20 cases across 8 categories: alerts (4), Prometheus (5), Proxmox (2), PBS (1), TrueNAS (2), Loki (2), memory (3),
+cross-tool (1). Cases are YAML files in `src/eval/cases/`.
 
 ## Weekly Reliability Report
 
@@ -246,8 +246,8 @@ _archive_report()                    → Memory store (auto-save, if configured)
 _compute_post_report_baselines()     → Memory store (metric baselines, if configured)
 ```
 
-All collectors run concurrently via `asyncio.gather()`, each wrapped in try/except. A collector failure produces
-`None` for that section — the report is always generated, even with partial data.
+All collectors run concurrently via `asyncio.gather()`, each wrapped in try/except. A collector failure produces `None`
+for that section — the report is always generated, even with partial data.
 
 ### Report Sections
 
@@ -268,10 +268,10 @@ All collectors run concurrently via `asyncio.gather()`, each wrapped in try/exce
 
 ### Metrics
 
-| Metric | Type | Labels |
-|--------|------|--------|
-| `sre_assistant_reports_total` | Counter | `trigger` (scheduled/manual), `status` (success/error) |
-| `sre_assistant_report_duration_seconds` | Histogram | — |
+| Metric                                  | Type      | Labels                                                 |
+| --------------------------------------- | --------- | ------------------------------------------------------ |
+| `sre_assistant_reports_total`           | Counter   | `trigger` (scheduled/manual), `status` (success/error) |
+| `sre_assistant_report_duration_seconds` | Histogram | —                                                      |
 
 ## Agent Memory Store
 
@@ -290,8 +290,8 @@ SQLite database at the path configured by `MEMORY_DB_PATH` (empty = disabled). U
   linkage. Indexed by `alert_name` and `created_at`.
 - **`metric_baselines`** — computed avg/p95/min/max per metric over a lookback window. Indexed by
   `(metric_name, computed_at)`.
-- **`query_patterns`** — recent user questions and tools used, enabling the agent to see common query topics.
-  Indexed by `created_at`. Auto-cleaned to keep the most recent 100 entries.
+- **`query_patterns`** — recent user questions and tools used, enabling the agent to see common query topics. Indexed by
+  `created_at`. Auto-cleaned to keep the most recent 100 entries.
 
 ### Agent Tools (4, conditional on `MEMORY_DB_PATH`)
 
@@ -304,14 +304,14 @@ SQLite database at the path configured by `MEMORY_DB_PATH` (empty = disabled). U
 
 - **Report generator** — after generation, auto-archives the report to the memory store and computes metric baselines
   from Prometheus. Loads the previous report as context for the LLM narrative.
-- **Agent build-time** — `_get_memory_context()` loads open incidents and recent query patterns into the system prompt
-  so the agent starts each session aware of ongoing issues and common user topics.
+- **Agent build-time** — `_get_memory_context()` loads open incidents and recent query patterns into the system prompt so
+  the agent starts each session aware of ongoing issues and common user topics.
 - **Agent post-response** — `_post_response_actions()` saves query patterns (question + tools used) and detects
   investigation conversations that warrant recording as incidents (suggests `memory_record_incident`).
 - **Prometheus tool** — `prometheus_instant_query` enriches results with baseline context (avg/p95/min/max) when
   baselines exist for the queried metric.
-- **Grafana alerts tool** — `grafana_get_alerts` appends past incident history for any active alert names found in
-  the memory store, giving the agent immediate context about recurring issues.
+- **Grafana alerts tool** — `grafana_get_alerts` appends past incident history for any active alert names found in the
+  memory store, giving the agent immediate context about recurring issues.
 - **System prompt** — guidance for when to use memory tools (search incidents before investigating, record root causes,
   check baselines for anomaly detection).
 
@@ -330,14 +330,14 @@ src/memory/
 ## Configuration
 
 Settings are loaded from environment variables via `pydantic-settings`. The `Settings` class in `src/config.py` defines
-all configuration with sensible defaults. Optional integrations (TrueNAS, Loki, Proxmox VE, PBS, Memory Store) default
-to empty strings, which disables their tools.
+all configuration with sensible defaults. Optional integrations (TrueNAS, Loki, Proxmox VE, PBS, Memory Store) default to
+empty strings, which disables their tools.
 
 ### Conversation History Persistence
 
-The full conversation for each session — including all tool calls, tool responses, and intermediate messages — is
-saved as a JSON file to `/app/conversations` after each agent invocation. This is designed for debugging and improving
-the agent, not for runtime use.
+The full conversation for each session — including all tool calls, tool responses, and intermediate messages — is saved
+as a JSON file to `/app/conversations` after each agent invocation. This is designed for debugging and improving the
+agent, not for runtime use.
 
 - **File format:** `{datetime}_{session_id}.json` with metadata (timestamps, turn count, model) and the full LangChain
   message list serialized via `messages_to_dict()`
@@ -369,8 +369,8 @@ topology) that the RAG agent needs for useful answers. The deployment strategy h
 
 ### Container Architecture
 
-A single Docker image (multi-stage build, `python:3.13-slim`) contains all three services. The
-`docker-compose.yml` overrides the command per service:
+A single Docker image (multi-stage build, `python:3.13-slim`) contains all three services. The `docker-compose.yml`
+overrides the command per service:
 
 ```
 docker-compose.yml
@@ -393,11 +393,11 @@ docker-compose.yml
         restart: unless-stopped, starts after api is healthy
 ```
 
-The `sre-ingest` service is under the `setup` profile — it won't run during normal `docker compose up`.
-Run it explicitly with `docker compose run --rm sre-ingest`.
+The `sre-ingest` service is under the `setup` profile — it won't run during normal `docker compose up`. Run it explicitly
+with `docker compose run --rm sre-ingest`.
 
-See the [README — Deploying with Docker](../readme.md#deploying-with-docker) for full setup instructions
-including how to merge into an existing compose stack.
+See the [README — Deploying with Docker](../readme.md#deploying-with-docker) for full setup instructions including how to
+merge into an existing compose stack.
 
 ### Networking
 
@@ -409,13 +409,13 @@ including how to merge into an existing compose stack.
 
 All secrets are managed via Ansible Vault, consistent with the rest of the homelab:
 
-| Secret | Source | Injected Via |
-|--------|--------|-------------|
-| `OPENAI_API_KEY` | Ansible Vault | `.env` template |
+| Secret                          | Source        | Injected Via    |
+| ------------------------------- | ------------- | --------------- |
+| `OPENAI_API_KEY`                | Ansible Vault | `.env` template |
 | `GRAFANA_SERVICE_ACCOUNT_TOKEN` | Ansible Vault | `.env` template |
-| `PROXMOX_API_TOKEN` | Ansible Vault | `.env` template |
-| `PBS_API_TOKEN` | Ansible Vault | `.env` template |
-| `TRUENAS_API_KEY` | Ansible Vault | `.env` template |
+| `PROXMOX_API_TOKEN`             | Ansible Vault | `.env` template |
+| `PBS_API_TOKEN`                 | Ansible Vault | `.env` template |
+| `TRUENAS_API_KEY`               | Ansible Vault | `.env` template |
 
 ### RAG Document Sources
 

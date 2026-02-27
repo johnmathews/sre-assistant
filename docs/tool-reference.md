@@ -4,20 +4,20 @@ The agent has up to 26 tools across 9 categories. Tools are conditionally regist
 
 ## Conditional Registration
 
-Tools are registered at startup based on which environment variables are set. If a URL is empty or unset,
-that tool group is skipped entirely (no failed connections, no error logs).
+Tools are registered at startup based on which environment variables are set. If a URL is empty or unset, that tool group
+is skipped entirely (no failed connections, no error logs).
 
-| Tool Group | Tools | Required Config | Always Available |
-|------------|-------|-----------------|------------------|
-| Prometheus | `prometheus_search_metrics`, `prometheus_instant_query`, `prometheus_range_query` | `PROMETHEUS_URL` | Yes (required) |
-| Grafana Alerting | `grafana_get_alerts`, `grafana_get_alert_rules` | `GRAFANA_URL` | Yes (required) |
-| Loki | `loki_query_logs`, `loki_metric_query`, `loki_list_label_values`, `loki_correlate_changes` | `LOKI_URL` | No |
-| Proxmox VE | `proxmox_list_guests`, `proxmox_get_guest_config`, `proxmox_node_status`, `proxmox_list_tasks` | `PROXMOX_URL` | No |
-| TrueNAS SCALE | `truenas_pool_status`, `truenas_list_shares`, `truenas_snapshots`, `truenas_system_status`, `truenas_apps` | `TRUENAS_URL` | No |
-| HDD Power Status | `hdd_power_status` | `TRUENAS_URL` | No |
-| PBS | `pbs_datastore_status`, `pbs_list_backups`, `pbs_list_tasks` | `PBS_URL` | No |
-| Memory | `memory_search_incidents`, `memory_record_incident`, `memory_get_previous_report`, `memory_check_baseline` | `MEMORY_DB_PATH` | No |
-| RAG | `runbook_search` | Chroma vector store on disk | Yes (after `make ingest`) |
+| Tool Group       | Tools                                                                                                      | Required Config             | Always Available          |
+| ---------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------- |
+| Prometheus       | `prometheus_search_metrics`, `prometheus_instant_query`, `prometheus_range_query`                          | `PROMETHEUS_URL`            | Yes (required)            |
+| Grafana Alerting | `grafana_get_alerts`, `grafana_get_alert_rules`                                                            | `GRAFANA_URL`               | Yes (required)            |
+| Loki             | `loki_query_logs`, `loki_metric_query`, `loki_list_label_values`, `loki_correlate_changes`                 | `LOKI_URL`                  | No                        |
+| Proxmox VE       | `proxmox_list_guests`, `proxmox_get_guest_config`, `proxmox_node_status`, `proxmox_list_tasks`             | `PROXMOX_URL`               | No                        |
+| TrueNAS SCALE    | `truenas_pool_status`, `truenas_list_shares`, `truenas_snapshots`, `truenas_system_status`, `truenas_apps` | `TRUENAS_URL`               | No                        |
+| HDD Power Status | `hdd_power_status`                                                                                         | `TRUENAS_URL`               | No                        |
+| PBS              | `pbs_datastore_status`, `pbs_list_backups`, `pbs_list_tasks`                                               | `PBS_URL`                   | No                        |
+| Memory           | `memory_search_incidents`, `memory_record_incident`, `memory_get_previous_report`, `memory_check_baseline` | `MEMORY_DB_PATH`            | No                        |
+| RAG              | `runbook_search`                                                                                           | Chroma vector store on disk | Yes (after `make ingest`) |
 
 Health checks (`GET /health`) also follow this pattern — only configured services are checked.
 
@@ -38,9 +38,9 @@ Query Prometheus for the current value of a metric (instant query).
 - **Input:** `query` (PromQL string), `time` (optional RFC3339/Unix timestamp)
 - **Example questions:** "What is the current CPU usage on jellyfin?", "How many VMs are running?"
 - **Returns:** Formatted metric values with labels
-- **Safeguard:** If the query uses `max_over_time` and returns negative values (or wraps `max_over_time` in `abs()`),
-  a warning is appended to the output explaining that `min_over_time` + `abs()` should be used instead for peak
-  magnitude of negative metrics (e.g. download bytes/sec)
+- **Safeguard:** If the query uses `max_over_time` and returns negative values (or wraps `max_over_time` in `abs()`), a
+  warning is appended to the output explaining that `min_over_time` + `abs()` should be used instead for peak magnitude
+  of negative metrics (e.g. download bytes/sec)
 
 ### prometheus_range_query
 
@@ -74,7 +74,8 @@ Fetch alert rule definitions from Grafana.
 
 Query Loki for log lines using LogQL.
 
-- **Input:** `query` (LogQL string), `start` (relative like "1h" or ISO timestamp, default "1h"), `end` (relative or ISO, default "now"), `limit` (int, default 100, max 1000), `direction` ("forward" or "backward", default "backward")
+- **Input:** `query` (LogQL string), `start` (relative like "1h" or ISO timestamp, default "1h"), `end` (relative or ISO,
+  default "now"), `limit` (int, default 100, max 1000), `direction` ("forward" or "backward", default "backward")
 - **Example questions:** "Show me recent logs from traefik", "What errors occurred on the media VM in the last 6 hours?"
 - **Returns:** Formatted log lines with timestamps, stream labels, and log text
 
@@ -82,10 +83,14 @@ Query Loki for log lines using LogQL.
 
 Run a LogQL metric query against Loki to count, rate, or aggregate logs. Returns numeric results, not log lines.
 
-- **Input:** `query` (LogQL metric query), `start` (relative or ISO, default "1h"), `end` (relative or ISO, default "now"), `step` (optional, e.g. "5m" — if provided, runs range query; if omitted, runs instant query)
-- **Example questions:** "Which host has the most logs today?", "What is the error rate per service?", "How many warnings in the last hour?"
-- **Returns:** For instant queries: series sorted by value descending. For range queries: time series per series with timestamps and values.
-- **Note:** `count_over_time`, `rate`, `sum by`, `topk` are LogQL functions that run against Loki — never send them to Prometheus tools.
+- **Input:** `query` (LogQL metric query), `start` (relative or ISO, default "1h"), `end` (relative or ISO, default
+  "now"), `step` (optional, e.g. "5m" — if provided, runs range query; if omitted, runs instant query)
+- **Example questions:** "Which host has the most logs today?", "What is the error rate per service?", "How many warnings
+  in the last hour?"
+- **Returns:** For instant queries: series sorted by value descending. For range queries: time series per series with
+  timestamps and values.
+- **Note:** `count_over_time`, `rate`, `sum by`, `topk` are LogQL functions that run against Loki — never send them to
+  Prometheus tools.
 
 ### loki_list_label_values
 
@@ -99,7 +104,8 @@ List available values for a Loki label.
 
 Search for significant log events around a reference time for change correlation.
 
-- **Input:** `reference_time` (ISO timestamp or "now"), `window_minutes` (int, default 30), `hostname` (optional filter), `service_name` (optional filter)
+- **Input:** `reference_time` (ISO timestamp or "now"), `window_minutes` (int, default 30), `hostname` (optional filter),
+  `service_name` (optional filter)
 - **Example questions:** "What changed before this alert fired?", "Show me what happened around 2pm on the infra VM"
 - **Returns:** Chronological timeline of error/warn/fatal events and container lifecycle events, grouped by service
 
@@ -117,10 +123,12 @@ List all VMs and containers on the Proxmox node.
 
 Get the full configuration of a specific VM or container.
 
-- **Input:** `name` (string, preferred — auto-resolves VMID and type) OR `vmid` (integer) + `guest_type` (string, default "qemu")
+- **Input:** `name` (string, preferred — auto-resolves VMID and type) OR `vmid` (integer) + `guest_type` (string, default
+  "qemu")
 - **Example questions:** "What disks does VM 100 have?", "Show the config for jellyfin"
 - **Returns:** Grouped config: compute (CPU/RAM), disks, network, boot/OS settings
-- **Name lookup:** When `name` is provided (e.g. "immich"), the tool lists all guests to resolve the correct VMID and type (qemu/lxc) automatically. This avoids needing to call `proxmox_list_guests` first.
+- **Name lookup:** When `name` is provided (e.g. "immich"), the tool lists all guests to resolve the correct VMID and
+  type (qemu/lxc) automatically. This avoids needing to call `proxmox_list_guests` first.
 
 ### proxmox_node_status
 
@@ -145,8 +153,10 @@ List recent Proxmox tasks (migrations, backups, snapshots, etc).
 Get ZFS pool health and dataset space usage from TrueNAS.
 
 - **Input:** none
-- **Example questions:** "Is the tank pool healthy?", "How much space is left on the NAS?", "Any degraded pools?", "How big is my photos dataset?", "How much space does tank/media use?"
-- **Returns:** Pool status (ONLINE/DEGRADED/FAULTED), health flag, size/used/free space, disk topology, per-dataset used/available for each top-level dataset
+- **Example questions:** "Is the tank pool healthy?", "How much space is left on the NAS?", "Any degraded pools?", "How
+  big is my photos dataset?", "How much space does tank/media use?"
+- **Returns:** Pool status (ONLINE/DEGRADED/FAULTED), health flag, size/used/free space, disk topology, per-dataset
+  used/available for each top-level dataset
 
 ### truenas_list_shares
 
@@ -161,7 +171,8 @@ List NFS and SMB shares configured on TrueNAS.
 List ZFS snapshots, snapshot schedules, and replication tasks on TrueNAS.
 
 - **Input:** `dataset` (optional filter, e.g. "tank/media"), `limit` (int, default 50)
-- **Example questions:** "When was the last snapshot of tank/media?", "Is replication running?", "What snapshot schedules exist?"
+- **Example questions:** "When was the last snapshot of tank/media?", "Is replication running?", "What snapshot schedules
+  exist?"
 - **Returns:** Recent snapshots, periodic snapshot task schedules with retention, replication task status
 
 ### truenas_system_status
@@ -177,7 +188,8 @@ Get TrueNAS system information, alerts, running jobs, and disk inventory.
 List apps installed on TrueNAS SCALE with their running state.
 
 - **Input:** none
-- **Example questions:** "What apps are running on TrueNAS?", "Is Alloy running?", "Is the disk-status-exporter deployed?"
+- **Example questions:** "What apps are running on TrueNAS?", "Is Alloy running?", "Is the disk-status-exporter
+  deployed?"
 - **Returns:** App name, state (RUNNING/STOPPED/DEPLOYING), version, upgrade availability
 
 ## HDD Power Status (enabled when `TRUENAS_URL` is set)
@@ -187,10 +199,18 @@ List apps installed on TrueNAS SCALE with their running state.
 Complete HDD power status summary: current state, human-readable disk names, and transition history.
 
 - **Input:**
-  - `duration` (string, default `"24h"`) — time window for stats and transition history. Examples: `"1h"`, `"6h"`, `"12h"`, `"24h"`, `"3d"`, `"1w"`.
-  - `pool` (string or null, default `null`) — optional ZFS pool name filter (e.g. `"tank"`, `"backup"`). If omitted, all HDD pools are included.
-- **Example questions:** "Which HDDs are spun up?", "Are the backup pool drives spun down?" (`pool='backup'`), "How many state changes in the last 12 hours?" (`duration='12h'`), "Were the tank HDDs active this week?" (`duration='1w', pool='tank'`), "What fraction of the last 6h were my drives in standby?" (`duration='6h'`)
-- **Returns:** Per-disk power state (standby, idle, active_or_idle, idle_a/b/c, active, sleep, error, unknown) with model, size, serial, pool. Change counts and time-in-state percentages for the requested duration. Last power state change timestamp with from/to transition. Automatically cross-references Prometheus `disk_power_state` with TrueNAS disk inventory, enriches pool assignments from `/pool` topology (since `/disk` returns pool as null), and uses progressive `changes()` widening to find transitions.
+  - `duration` (string, default `"24h"`) — time window for stats and transition history. Examples: `"1h"`, `"6h"`,
+    `"12h"`, `"24h"`, `"3d"`, `"1w"`.
+  - `pool` (string or null, default `null`) — optional ZFS pool name filter (e.g. `"tank"`, `"backup"`). If omitted, all
+    HDD pools are included.
+- **Example questions:** "Which HDDs are spun up?", "Are the backup pool drives spun down?" (`pool='backup'`), "How many
+  state changes in the last 12 hours?" (`duration='12h'`), "Were the tank HDDs active this week?"
+  (`duration='1w', pool='tank'`), "What fraction of the last 6h were my drives in standby?" (`duration='6h'`)
+- **Returns:** Per-disk power state (standby, idle, active_or_idle, idle_a/b/c, active, sleep, error, unknown) with
+  model, size, serial, pool. Change counts and time-in-state percentages for the requested duration. Last power state
+  change timestamp with from/to transition. Automatically cross-references Prometheus `disk_power_state` with TrueNAS
+  disk inventory, enriches pool assignments from `/pool` topology (since `/disk` returns pool as null), and uses
+  progressive `changes()` widening to find transitions.
 
 ## Proxmox Backup Server (enabled when `PBS_URL` is set)
 
@@ -224,7 +244,8 @@ List recent PBS tasks (backup jobs, GC, verification).
 
 Search past incidents recorded in the agent's memory store.
 
-- **Input:** `query` (optional keyword), `alert_name` (optional exact match), `service` (optional substring), `limit` (int, default 10)
+- **Input:** `query` (optional keyword), `alert_name` (optional exact match), `service` (optional substring), `limit`
+  (int, default 10)
 - **Example questions:** "Has this HighCPU alert happened before?", "What incidents involved traefik?"
 - **Returns:** Matching incidents with title, description, root cause, resolution, severity, and status
 
@@ -232,7 +253,8 @@ Search past incidents recorded in the agent's memory store.
 
 Record a new incident in the agent's memory store.
 
-- **Input:** `title` (string), `description` (string), `alert_name` (optional), `root_cause` (optional), `resolution` (optional), `severity` (info/warning/critical), `services` (comma-separated)
+- **Input:** `title` (string), `description` (string), `alert_name` (optional), `root_cause` (optional), `resolution`
+  (optional), `severity` (info/warning/critical), `services` (comma-separated)
 - **Example use:** After identifying a root cause during investigation, record it for future reference
 - **Returns:** Confirmation with incident ID
 

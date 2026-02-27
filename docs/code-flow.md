@@ -18,12 +18,12 @@ src/api/main.py::ask()
     -> agent.ainvoke({"messages": [HumanMessage(content=message)]}, config)
 ```
 
-The agent is built once at startup via `build_agent()` and stored in `app.state.agent`. At build time, the system
-prompt template is formatted with the current UTC date/time and a Prometheus retention cutoff (~90 days ago), so the
-agent always knows what "today" is and avoids querying stale time ranges. If the memory store is configured,
-`_get_memory_context()` loads open incidents and recent query patterns into the system prompt as additional context.
-Each request passes through `invoke_agent()` which wraps the LangGraph `ainvoke` call with a session-scoped config
-for conversation memory.
+The agent is built once at startup via `build_agent()` and stored in `app.state.agent`. At build time, the system prompt
+template is formatted with the current UTC date/time and a Prometheus retention cutoff (~90 days ago), so the agent
+always knows what "today" is and avoids querying stale time ranges. If the memory store is configured,
+`_get_memory_context()` loads open incidents and recent query patterns into the system prompt as additional context. Each
+request passes through `invoke_agent()` which wraps the LangGraph `ainvoke` call with a session-scoped config for
+conversation memory.
 
 ### 3. Tool Selection
 
@@ -51,13 +51,13 @@ async def tool_name(param: str) -> str:
 
 ### 5. Response Formatting
 
-Tool results are formatted into human-readable strings (not raw JSON) so the LLM can reason about them effectively.
-The LLM composes a final answer from tool results and its knowledge.
+Tool results are formatted into human-readable strings (not raw JSON) so the LLM can reason about them effectively. The
+LLM composes a final answer from tool results and its knowledge.
 
 ### 6. Conversation Persistence
 
-After `ainvoke()` returns, the full message list (including tool calls and tool responses) is serialized to a JSON
-file in `/app/conversations`:
+After `ainvoke()` returns, the full message list (including tool calls and tool responses) is serialized to a JSON file
+in `/app/conversations`:
 
 ```
 result = agent.ainvoke(...)
@@ -70,8 +70,8 @@ messages = result["messages"]
        -> errors logged and swallowed (never crashes the request)
 ```
 
-If the agent entered the error recovery path (corrupted tool-call history), the fresh session ID is used for the
-saved file, not the original session ID.
+If the agent entered the error recovery path (corrupted tool-call history), the fresh session ID is used for the saved
+file, not the original session ID.
 
 ### 7. Post-Response Actions
 
@@ -125,8 +125,8 @@ get_settings() -> Settings()  [cached via @lru_cache]
   4. Returns singleton Settings instance
 ```
 
-Each tool module imports `get_settings` independently. In tests, `conftest.py::mock_settings` patches `get_settings`
-at every import site (16 patch sites as of Phase 7).
+Each tool module imports `get_settings` independently. In tests, `conftest.py::mock_settings` patches `get_settings` at
+every import site (16 patch sites as of Phase 7).
 
 ## Metrics Flow
 
@@ -154,12 +154,12 @@ LangGraph's execution loop.
 
 #### Why callbacks instead of decorating tools?
 
-LangGraph runs an internal agentic loop: the LLM decides to call a tool → the tool runs → the result is fed back →
-the LLM decides whether to call another tool or respond. This loop is invisible to FastAPI middleware, which only sees
-the outer HTTP request. Three alternative approaches were considered:
+LangGraph runs an internal agentic loop: the LLM decides to call a tool → the tool runs → the result is fed back → the
+LLM decides whether to call another tool or respond. This loop is invisible to FastAPI middleware, which only sees the
+outer HTTP request. Three alternative approaches were considered:
 
-1. **Decorating each tool function** — requires modifying every `@tool` definition and remembering to decorate new
-   tools. Fragile and repetitive.
+1. **Decorating each tool function** — requires modifying every `@tool` definition and remembering to decorate new tools.
+   Fragile and repetitive.
 2. **FastAPI middleware** — can time the overall request but cannot see individual tool calls or LLM invocations inside
    the agent loop.
 3. **LangChain callbacks** (chosen) — `BaseCallbackHandler` is invoked automatically by LangGraph at each lifecycle
@@ -181,6 +181,7 @@ invoke_agent(agent, message, session_id)
 During execution, LangGraph calls the handler at these points:
 
 **Tool lifecycle:**
+
 ```
 on_tool_start(serialized, input_str, run_id)
   -> stores run_id → (time.monotonic(), tool_name) in _start_times dict
@@ -198,6 +199,7 @@ on_tool_error(error, run_id)
 ```
 
 **LLM lifecycle:**
+
 ```
 on_llm_end(response, run_id)
   -> LLM_CALLS_TOTAL.labels(status="success").inc()
@@ -214,18 +216,18 @@ on_llm_error(error, run_id)
 #### Error resilience
 
 Every callback method is wrapped in `try/except`. Metrics collection must never crash a request — if a callback fails
-(e.g., unexpected `llm_output` format, missing `token_usage` key), it logs at DEBUG level and continues. This is
-critical because `llm_output` format varies across LLM providers and can change between library versions.
+(e.g., unexpected `llm_output` format, missing `token_usage` key), it logs at DEBUG level and continues. This is critical
+because `llm_output` format varies across LLM providers and can change between library versions.
 
 #### Cost estimation
 
 The handler matches `model_name` from `llm_output` against a prefix-based pricing table:
 
-| Model prefix | Prompt (per 1M tokens) | Completion (per 1M tokens) |
-|-------------|------------------------|---------------------------|
-| `gpt-4o-mini` | $0.15 | $0.60 |
-| `gpt-4o` | $2.50 | $10.00 |
-| `gpt-4-turbo` | $10.00 | $30.00 |
+| Model prefix  | Prompt (per 1M tokens) | Completion (per 1M tokens) |
+| ------------- | ---------------------- | -------------------------- |
+| `gpt-4o-mini` | $0.15                  | $0.60                      |
+| `gpt-4o`      | $2.50                  | $10.00                     |
+| `gpt-4-turbo` | $10.00                 | $30.00                     |
 
 Unknown models fall back to `gpt-4o` pricing (the conservative default). The total cost counter is monotonically
 increasing — Prometheus `rate()` computes cost per time window for the dashboard.
@@ -236,9 +238,9 @@ increasing — Prometheus `rate()` computes cost per time window for the dashboa
 
 ### Health gauge updates
 
-`GET /health` updates the `sre_assistant_component_healthy` gauge for each component after checking its status.
-This means the gauge reflects the last health check result. Prometheus scrapes `/metrics` on its own schedule,
-so the gauge value between health checks remains at the last-known state.
+`GET /health` updates the `sre_assistant_component_healthy` gauge for each component after checking its status. This
+means the gauge reflects the last health check result. Prometheus scrapes `/metrics` on its own schedule, so the gauge
+value between health checks remains at the last-known state.
 
 ## Report Generation Flow
 
@@ -283,7 +285,9 @@ start_scheduler()  (called in FastAPI lifespan)
 
 ### Collector Error Handling
 
-Each collector runs independently. If a collector raises (e.g., Prometheus is down), `asyncio.gather(return_exceptions=True)` catches it and stores `None` for that section. The report is always produced, with "data unavailable" placeholders for failed sections.
+Each collector runs independently. If a collector raises (e.g., Prometheus is down),
+`asyncio.gather(return_exceptions=True)` catches it and stores `None` for that section. The report is always produced,
+with "data unavailable" placeholders for failed sections.
 
 ## Health Check Flow
 
@@ -325,8 +329,8 @@ scripts/run_eval.py
 
 ### Why `agent.ainvoke()` not `invoke_agent()`?
 
-`invoke_agent()` discards the message list and returns only the final text. The eval runner needs the full message
-list to extract `AIMessage.tool_calls` for deterministic tool scoring. It reimplements the 3-line answer extraction.
+`invoke_agent()` discards the message list and returns only the final text. The eval runner needs the full message list
+to extract `AIMessage.tool_calls` for deterministic tool scoring. It reimplements the 3-line answer extraction.
 
 ### Why HTTP-level mocking (not tool-function mocking)?
 
