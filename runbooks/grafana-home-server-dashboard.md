@@ -39,8 +39,8 @@ Dashboard UID: `dekkfibh9454wb` | Auto-refresh: 10s | Default range: 24h
 **What it shows:** Real-time and smoothed power consumption of the entire tech shelf (server, NAS, networking gear, UPS)
 measured by a Home Assistant smart plug. Normal idle ~70W. Thresholds: 73W=warm, 76W=elevated, 80W+=high.
 
-**Metric:** `homeassistant_sensor_power_w{entity="sensor.tech_shelf_power"}` — raw reading. Use
-`avg_over_time(...[60m])` for 1hr, `[3d]` for 3-day, `[14d]` for 14-day moving averages.
+**Metric:** `homeassistant_sensor_power_w{entity="sensor.tech_shelf_power"}` — raw reading. Use `avg_over_time(...[60m])`
+for 1hr, `[3d]` for 3-day, `[14d]` for 14-day moving averages.
 
 **Agent capability:** Answer "what's the current power draw?", "what's the average power this week?", "is power
 consumption trending up or down?", "has power usage changed recently?"
@@ -51,8 +51,8 @@ consumption trending up or down?", "has power usage changed recently?"
 
 **What it shows:** State-timeline of each physical HDD across Proxmox and TrueNAS — spinning vs standby.
 
-**Metric:** `disk_power_state{type="hdd"}` — states: 0=Standby, 1=Idle, 2=Active/Idle, 6=Active, 7=Sleep,
--1=Unknown, -2=Error. Use `hdd_power_status` tool (not raw Prometheus) for best results.
+**Metric:** `disk_power_state{type="hdd"}` — states: 0=Standby, 1=Idle, 2=Active/Idle, 6=Active, 7=Sleep, -1=Unknown,
+-2=Error. Use `hdd_power_status` tool (not raw Prometheus) for best results.
 
 **Disks:** tank pool (2 HDDs on TrueNAS), backup pool (2 HDDs on TrueNAS), Proxmox backup (1 HDD).
 
@@ -143,8 +143,8 @@ media VM?", "is any guest generating unusual network traffic?"
 
 **What it shows:** Proxmox host total CPU usage, IO wait, iGPU utilization, and 15-minute average.
 
-**Queries:** Total CPU = `100 - (avg(rate(node_cpu_seconds_total{mode="idle",hostname="proxmox"}[1m])) * 100)`.
-IO Wait = same with `mode="iowait"`. iGPU = `radeontop_gpu_percent`. 15m avg = same idle formula with `[15m]`.
+**Queries:** Total CPU = `100 - (avg(rate(node_cpu_seconds_total{mode="idle",hostname="proxmox"}[1m])) * 100)`. IO Wait =
+same with `mode="iowait"`. iGPU = `radeontop_gpu_percent`. 15m avg = same idle formula with `[15m]`.
 
 **Agent capability:** Answer "what's the CPU usage on Proxmox?", "is there high IO wait?", "what's the iGPU
 utilization?", "what's the 15-minute CPU average?", "is CPU trending up?"
@@ -268,12 +268,12 @@ error log volume over the last hour", "any new error patterns?"
 
 ### 14. Resource Allocation Summary (row 48, right — table)
 
-**What it shows:** Table of all Proxmox guests with: name, type (qemu/lxc), status (running/stopped), vCPUs, memory
-size, memory usage %, disk size, disk usage % (LXC only). All queries use `pve_*` metrics joined by guest `id`.
+**What it shows:** Table of all Proxmox guests with: name, type (qemu/lxc), status (running/stopped), vCPUs, memory size,
+memory usage %, disk size, disk usage % (LXC only). All queries use `pve_*` metrics joined by guest `id`.
 
 **Key metrics:** `pve_guest_info` (inventory), `pve_up` (status), `pve_cpu_usage_limit` (vCPUs),
-`pve_memory_size_bytes`/`pve_memory_usage_bytes` (memory), `pve_disk_size_bytes`/`pve_disk_usage_bytes` (disk, LXC
-only). Thresholds: memory 75%=orange/90%=red, disk 70%=orange/90%=red.
+`pve_memory_size_bytes`/`pve_memory_usage_bytes` (memory), `pve_disk_size_bytes`/`pve_disk_usage_bytes` (disk, LXC only).
+Thresholds: memory 75%=orange/90%=red, disk 70%=orange/90%=red.
 
 **Agent capability:** Answer "list all VMs and their status", "which VMs are stopped?", "how many vCPUs are allocated
 total?", "which guest is using the most memory?", "are any LXC disks near full?"
@@ -547,17 +547,17 @@ The agent MUST be able to answer questions in all of these domains with the same
 
 ### Key Metrics — Infrastructure & Power
 
-| Metric                                    | Source             | Domain         |
-| ----------------------------------------- | ------------------ | -------------- |
-| `homeassistant_sensor_power_w`            | Home Assistant     | Power          |
-| `network_ups_tools_*`                     | NUT exporter       | UPS            |
-| `ipmi_fan_speed_rpm`                      | IPMI exporter      | Fans           |
-| `ipmi_temperature_celsius`                | IPMI exporter      | Temperatures   |
-| `smartctl_device_temperature`             | smartctl exporter  | Disk temps     |
-| `disk_power_state`                        | custom exporter    | Disk state     |
-| `disk:spindown_event:1`                   | recording rule     | Disk spindowns |
-| `share_drive_probe_state_enriched`        | custom exporter    | Share mounts   |
-| `prometheus_tsdb_*`                       | Prometheus         | Self-monitoring|
+| Metric                             | Source            | Domain          |
+| ---------------------------------- | ----------------- | --------------- |
+| `homeassistant_sensor_power_w`     | Home Assistant    | Power           |
+| `network_ups_tools_*`              | NUT exporter      | UPS             |
+| `ipmi_fan_speed_rpm`               | IPMI exporter     | Fans            |
+| `ipmi_temperature_celsius`         | IPMI exporter     | Temperatures    |
+| `smartctl_device_temperature`      | smartctl exporter | Disk temps      |
+| `disk_power_state`                 | custom exporter   | Disk state      |
+| `disk:spindown_event:1`            | recording rule    | Disk spindowns  |
+| `share_drive_probe_state_enriched` | custom exporter   | Share mounts    |
+| `prometheus_tsdb_*`                | Prometheus        | Self-monitoring |
 
 ### Key Metrics — Compute & Networking
 
@@ -568,7 +568,7 @@ The agent MUST be able to answer questions in all of these domains with the same
 | `radeontop_gpu_percent`                   | radeontop exporter | iGPU                |
 | `pve_cpu_usage_ratio`                     | PVE exporter       | Guest CPU           |
 | `pve_memory_*_bytes`                      | PVE exporter       | Guest memory        |
-| `pve_guest_info` / `pve_up`              | PVE exporter       | Guest inventory     |
+| `pve_guest_info` / `pve_up`               | PVE exporter       | Guest inventory     |
 | `pve_cpu_usage_limit`                     | PVE exporter       | Guest vCPUs         |
 | `pve_disk_*_bytes`                        | PVE exporter       | Guest disk          |
 | `pve_network_*_bytes_per_second`          | PVE exporter       | Guest network       |

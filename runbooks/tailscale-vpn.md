@@ -13,7 +13,8 @@ itself will eventually run as a Docker service on Proxmox, always on the home ne
 
 **At home:** Clients use local network (192.168.2.x) directly.
 
-**When traveling:** Clients connect via Tailscale VPN tunnel. DNS queries route to home AdGuard for privacy and ad blocking.
+**When traveling:** Clients connect via Tailscale VPN tunnel. DNS queries route to home AdGuard for privacy and ad
+blocking.
 
 ```
 Device (any WiFi) -> Tailscale tunnel -> AdGuard (100.108.0.112) -> Unbound -> Quad9

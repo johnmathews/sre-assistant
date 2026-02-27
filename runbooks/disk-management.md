@@ -59,33 +59,33 @@ rate(node_disk_io_time_seconds_total[5m])
 
 ## HDD Spinup / Spindown Detection
 
-TrueNAS HDDs spin down when idle and spin up on access. There are two complementary approaches
-to detect spinup/spindown: the `disk_power_state` metric (direct power state) and
-`node_disk_io_time_seconds_total` (indirect via IO activity).
+TrueNAS HDDs spin down when idle and spin up on access. There are two complementary approaches to detect spinup/spindown:
+the `disk_power_state` metric (direct power state) and `node_disk_io_time_seconds_total` (indirect via IO activity).
 
 ### Primary: disk_power_state metric
 
-The `disk-status-exporter` on TrueNAS exports `disk_power_state` as a numeric gauge with labels
-`device_id`, `device`, `type` (always `hdd` — SSDs are filtered by the exporter), and `pool`.
+The `disk-status-exporter` on TrueNAS exports `disk_power_state` as a numeric gauge with labels `device_id`, `device`,
+`type` (always `hdd` — SSDs are filtered by the exporter), and `pool`.
 
 **Power state values:**
 
-| Value | State            | Meaning                                                  |
-| ----- | ---------------- | -------------------------------------------------------- |
-| `-2`  | `error`          | smartctl returned an error                               |
-| `-1`  | `unknown`        | state could not be determined, or device is in cooldown  |
-| `0`   | `standby`        | drive is spun down (platters stopped)                    |
-| `1`   | `idle`           | generic idle (not further classified by firmware)        |
-| `2`   | `active_or_idle` | drive is active or idle (smartctl cannot distinguish)    |
-| `3`   | `idle_a`         | ACS idle_a (shallow idle, fast recovery)                 |
-| `4`   | `idle_b`         | ACS idle_b (heads unloaded)                              |
-| `5`   | `idle_c`         | ACS idle_c (heads unloaded, lower power)                 |
-| `6`   | `active`         | drive is actively performing I/O                         |
-| `7`   | `sleep`          | deepest power-saving mode (requires reset to wake)       |
+| Value | State            | Meaning                                                 |
+| ----- | ---------------- | ------------------------------------------------------- |
+| `-2`  | `error`          | smartctl returned an error                              |
+| `-1`  | `unknown`        | state could not be determined, or device is in cooldown |
+| `0`   | `standby`        | drive is spun down (platters stopped)                   |
+| `1`   | `idle`           | generic idle (not further classified by firmware)       |
+| `2`   | `active_or_idle` | drive is active or idle (smartctl cannot distinguish)   |
+| `3`   | `idle_a`         | ACS idle_a (shallow idle, fast recovery)                |
+| `4`   | `idle_b`         | ACS idle_b (heads unloaded)                             |
+| `5`   | `idle_c`         | ACS idle_c (heads unloaded, lower power)                |
+| `6`   | `active`         | drive is actively performing I/O                        |
+| `7`   | `sleep`          | deepest power-saving mode (requires reset to wake)      |
 
 Classification: values 1-6 = spun up/active, 0 and 7 = spun down, -2 and -1 = error/unknown.
 
 The exporter also provides:
+
 - `disk_power_state_string` — always 1, with a `state` label for human-readable display
 - `disk_info` — always 1, static metadata (join on `device_id`)
 - `disk_exporter_scan_seconds` — scrape duration
@@ -108,19 +108,19 @@ disk_power_state >= 1 and disk_power_state <= 6
 changes(disk_power_state{type="hdd"}[1h])
 ```
 
-**Note:** The `hdd_power_status` composite tool handles all querying, cross-referencing, and
-transition detection automatically. Use it instead of manually chaining Prometheus queries.
+**Note:** The `hdd_power_status` composite tool handles all querying, cross-referencing, and transition detection
+automatically. Use it instead of manually chaining Prometheus queries.
 
 ### Cross-referencing disk identity
 
-The `device_id` labels in `disk_power_state` are opaque (e.g. `wwn-0x5000c500eb02b449`).
-The `hdd_power_status` tool automatically cross-references these with TrueNAS disk inventory
-to report human-readable disk names (model, size, serial number).
+The `device_id` labels in `disk_power_state` are opaque (e.g. `wwn-0x5000c500eb02b449`). The `hdd_power_status` tool
+automatically cross-references these with TrueNAS disk inventory to report human-readable disk names (model, size, serial
+number).
 
 ### Secondary: node_disk_io_time_seconds_total
 
-As a fallback (if `disk_power_state` is unavailable), use IO time from node_exporter.
-This counter only increases when a disk is doing IO — a spun-down disk shows zero increase.
+As a fallback (if `disk_power_state` is unavailable), use IO time from node_exporter. This counter only increases when a
+disk is doing IO — a spun-down disk shows zero increase.
 
 ```promql
 # IO time increase per disk in the last 1 hour (non-zero = disk was active)
@@ -135,9 +135,9 @@ increase(node_disk_io_time_seconds_total{instance=~".*truenas.*", device=~"sd[c-
 
 ### Recommended agent strategy
 
-For any HDD power state question (spinup, spindown, state changes), use the `hdd_power_status`
-tool. It accepts optional `duration` (default `"24h"`, e.g. `"12h"`, `"3d"`, `"1w"`) and
-`pool` filter (e.g. `"tank"`, `"backup"`). It handles all the complexity automatically:
+For any HDD power state question (spinup, spindown, state changes), use the `hdd_power_status` tool. It accepts optional
+`duration` (default `"24h"`, e.g. `"12h"`, `"3d"`, `"1w"`) and `pool` filter (e.g. `"tank"`, `"backup"`). It handles all
+the complexity automatically:
 
 - Queries current power state from Prometheus
 - Cross-references device IDs with TrueNAS disk inventory for human-readable names

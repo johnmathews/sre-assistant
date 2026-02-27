@@ -85,8 +85,8 @@ node_memory_MemAvailable_bytes{instance=~".*truenas.*"}
 
 ### Toggle an NFS share (enable/disable)
 
-This is the most common fix for NFS issues. TrueNAS uses PUT (not PATCH) for share updates. The `/id/` prefix is
-required in the path.
+This is the most common fix for NFS issues. TrueNAS uses PUT (not PATCH) for share updates. The `/id/` prefix is required
+in the path.
 
 ```sh
 # Disable NFS share (replace 5 with actual share ID)

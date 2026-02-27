@@ -76,6 +76,7 @@ systemctl list-units 'mnt-nfs-*.mount' 'mnt-nfs-*.automount'
 This is the most common NFS issue. Fix by toggling the share on TrueNAS, then restarting affected Docker services.
 
 1. Toggle the NFS share via TrueNAS API (disable then enable):
+
    ```sh
    # Find share ID
    curl -s -k https://192.168.2.104/api/v2.0/sharing/nfs \
@@ -89,6 +90,7 @@ This is the most common NFS issue. Fix by toggling the share on TrueNAS, then re
      -H "Authorization: Bearer $TRUENAS_API_KEY" -H "Content-Type: application/json" \
      -k -d '{"enabled": true}'
    ```
+
 2. On the client, force unmount: `sudo umount -l /mnt/nfs/<dataset>`
 3. Remount: `sudo mount -t nfs 192.168.2.104:/mnt/tank/<dataset> /mnt/nfs/<dataset>`
 4. Restart Docker services that bindmount this NFS share: `cd /srv/apps && docker compose restart <service>`
@@ -102,8 +104,8 @@ This is the most common NFS issue. Fix by toggling the share on TrueNAS, then re
 
 ### Docker service can't access NFS-backed data
 
-Docker services access NFS data via host bindmounts. If the NFS mount is broken, the container sees an empty or
-errored mountpoint.
+Docker services access NFS data via host bindmounts. If the NFS mount is broken, the container sees an empty or errored
+mountpoint.
 
 1. Check the host NFS mount first: `ls -la /mnt/nfs/<dataset>/`
 2. If mount is stale, fix it (see above), then restart the Docker service

@@ -64,8 +64,8 @@ rate(node_network_transmit_bytes_total{instance=~".*101.*", device!="lo"}[5m])
 2. Check network traffic — zero transmit bytes for 5+ minutes suggests tunnel is down or idle
 3. Use Loki to check cloudflared service logs: `{hostname=~".*cloudflared.*"} |= "error"` or
    `{hostname=~".*cloudflared.*"} |= "reconnect"`
-4. Cross-reference with Traefik — if Traefik shows no incoming requests but services are healthy,
-   the tunnel may be the bottleneck
+4. Cross-reference with Traefik — if Traefik shows no incoming requests but services are healthy, the tunnel may be the
+   bottleneck
 
 ## Troubleshooting
 

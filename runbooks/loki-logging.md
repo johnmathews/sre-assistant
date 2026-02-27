@@ -2,8 +2,8 @@
 
 ## Purpose
 
-The homelab uses **Grafana Alloy** to collect logs from Docker containers and select systemd journal units, shipping
-them to a central **Loki** instance for storage and querying.
+The homelab uses **Grafana Alloy** to collect logs from Docker containers and select systemd journal units, shipping them
+to a central **Loki** instance for storage and querying.
 
 ## Collection Architecture
 
@@ -14,22 +14,22 @@ Docker containers (each VM/LXC)
                     └── SRE Agent (queries via HTTP API)
 ```
 
-Every VM and LXC that runs Docker has an identical Alloy configuration. Alloy discovers containers automatically via
-the Docker socket and attaches standardized labels to every log stream.
+Every VM and LXC that runs Docker has an identical Alloy configuration. Alloy discovers containers automatically via the
+Docker socket and attaches standardized labels to every log stream.
 
 ## Label Taxonomy
 
 Every log stream has exactly 4 labels:
 
-| Label            | Description                              | Examples                              |
-|------------------|------------------------------------------|---------------------------------------|
-| `hostname`       | VM/LXC name (matches Prometheus label)   | media, infra, jellyfin, proxmox       |
-| `service_name`   | Docker Compose service or systemd unit   | traefik, adguard, immich-server       |
-| `container`      | Docker container name                    | traefik-traefik-1, adguard-adguardhome-1 |
-| `detected_level` | Normalized log level                     | debug, info, notice, warn, error, fatal, verbose, trace |
+| Label            | Description                            | Examples                                                |
+| ---------------- | -------------------------------------- | ------------------------------------------------------- |
+| `hostname`       | VM/LXC name (matches Prometheus label) | media, infra, jellyfin, proxmox                         |
+| `service_name`   | Docker Compose service or systemd unit | traefik, adguard, immich-server                         |
+| `container`      | Docker container name                  | traefik-traefik-1, adguard-adguardhome-1                |
+| `detected_level` | Normalized log level                   | debug, info, notice, warn, error, fatal, verbose, trace |
 
-**Note:** `detected_level` is normalized by Alloy's log level detection. The original application may use different
-level names (e.g. WARNING vs warn) — Alloy maps them to the canonical set above.
+**Note:** `detected_level` is normalized by Alloy's log level detection. The original application may use different level
+names (e.g. WARNING vs warn) — Alloy maps them to the canonical set above.
 
 ## What's Collected
 
@@ -120,9 +120,9 @@ sum by (detected_level) (count_over_time({hostname="infra"}[24h]))
 sum by (hostname) (rate({detected_level=~"warn|error"}[5m]))
 ```
 
-**Instant vs range:** If you need a single answer (e.g., "which host has the most logs?"), omit the `step` parameter
-for an instant query. If you need a time series (e.g., "how has error rate changed over the day?"), provide a `step`
-like `5m` or `1h`.
+**Instant vs range:** If you need a single answer (e.g., "which host has the most logs?"), omit the `step` parameter for
+an instant query. If you need a time series (e.g., "how has error rate changed over the day?"), provide a `step` like
+`5m` or `1h`.
 
 ## Retention
 
@@ -141,11 +141,11 @@ Loki retention is configured at the server level. Check the Loki configuration f
 
 1. Check if the container is running: `docker ps` on the host
 2. Verify the container writes to stdout/stderr (not just files)
-3. Use `loki_list_label_values` with label "service_name" and query `{hostname="<host>"}` to see what services
-   are logging on that host
+3. Use `loki_list_label_values` with label "service_name" and query `{hostname="<host>"}` to see what services are
+   logging on that host
 
 ### Log level detection issues
 
 If `detected_level` shows unexpected values, the application may use a non-standard log format that Alloy can't parse.
-The logs are still collected — just the level label may be inaccurate. Filter by service_name instead of
-detected_level in these cases.
+The logs are still collected — just the level label may be inaccurate. Filter by service_name instead of detected_level
+in these cases.

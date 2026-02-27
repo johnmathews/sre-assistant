@@ -20,15 +20,15 @@ MikroTik Router (192.168.2.1:8728) -> MKTXP Container (infra:49090) -> Prometheu
 
 The hAP ax³ has the following interfaces, identified by the `name` label on `mktxp_interface_*` metrics:
 
-| `name` label | Role | Description |
-|---|---|---|
-| `youfone.nl` | WAN (PPPoE) | ISP tunnel — **best metric for internet traffic** |
-| `ether1` | WAN (physical) | Physical port carrying PPPoE; nearly identical to `youfone.nl` plus overhead |
-| `ether2`–`ether5` | LAN (physical) | LAN ports; some may be unused (zero traffic) |
-| `defconf` | LAN (bridge) | Default bridge aggregating all LAN ports + WiFi — **total LAN traffic** |
-| `2GHz` | WiFi | 2.4 GHz radio |
-| `5GHz` | WiFi | 5 GHz radio |
-| `lo` | Loopback | Always zero |
+| `name` label      | Role           | Description                                                                  |
+| ----------------- | -------------- | ---------------------------------------------------------------------------- |
+| `youfone.nl`      | WAN (PPPoE)    | ISP tunnel — **best metric for internet traffic**                            |
+| `ether1`          | WAN (physical) | Physical port carrying PPPoE; nearly identical to `youfone.nl` plus overhead |
+| `ether2`–`ether5` | LAN (physical) | LAN ports; some may be unused (zero traffic)                                 |
+| `defconf`         | LAN (bridge)   | Default bridge aggregating all LAN ports + WiFi — **total LAN traffic**      |
+| `2GHz`            | WiFi           | 2.4 GHz radio                                                                |
+| `5GHz`            | WiFi           | 5 GHz radio                                                                  |
+| `lo`              | Loopback       | Always zero                                                                  |
 
 **Important:** interface metrics use the `name` label (NOT `interface`). For example:
 `mktxp_interface_download_bytes_per_second{name="youfone.nl"}`.
@@ -55,11 +55,12 @@ The hAP ax³ has the following interfaces, identified by the `name` label on `mk
 - `mktxp_interface_rate` — physical link speed (bits/sec, e.g. 1000000000 = 1 Gbps)
 
 **CRITICAL: download bytes/sec values are negative.** This is an MKTXP exporter convention:
+
 - `mktxp_interface_download_bytes_per_second` → negative values
 - `mktxp_interface_upload_bytes_per_second` → positive values
 - Use `abs()` in PromQL to convert, e.g. `abs(mktxp_interface_download_bytes_per_second{name="youfone.nl"})`
-- `max_over_time` on negative values returns the value closest to zero (lowest rate) — use
-  `min_over_time` to get the most negative value (highest download rate)
+- `max_over_time` on negative values returns the value closest to zero (lowest rate) — use `min_over_time` to get the
+  most negative value (highest download rate)
 
 ### Network Health
 

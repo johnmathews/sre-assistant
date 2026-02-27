@@ -22,10 +22,10 @@ Internet -> Cloudflare Edge -> Cloudflare Tunnel -> cloudflared LXC (192.168.2.1
 
 ### Services routed through Traefik
 
-| Service  | Backend Address       | Rate Limited |
-|----------|-----------------------|-------------|
-| Immich   | http://192.168.2.113  | Auth routes |
-| Jellyfin | http://192.168.2.105:8096 | Auth routes |
+| Service  | Backend Address           | Rate Limited |
+| -------- | ------------------------- | ------------ |
+| Immich   | http://192.168.2.113      | Auth routes  |
+| Jellyfin | http://192.168.2.105:8096 | Auth routes  |
 
 ## Key Commands
 

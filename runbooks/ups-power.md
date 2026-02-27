@@ -2,7 +2,8 @@
 
 ## Purpose
 
-UPS (Uninterruptible Power Supply) protects the homelab from power outages. NUT (Network UPS Tools) monitors the UPS and triggers graceful shutdown of TrueNAS and Proxmox when battery runs low.
+UPS (Uninterruptible Power Supply) protects the homelab from power outages. NUT (Network UPS Tools) monitors the UPS and
+triggers graceful shutdown of TrueNAS and Proxmox when battery runs low.
 
 ## Architecture
 
@@ -62,7 +63,8 @@ nut_input_voltage{ups="ups"}
 
 ## Power Monitoring (Home Assistant)
 
-The entire server rack (Proxmox host + UPS + MikroTik router) is plugged into a smart plug that reports real-time power consumption to Home Assistant, which is scraped by Prometheus.
+The entire server rack (Proxmox host + UPS + MikroTik router) is plugged into a smart plug that reports real-time power
+consumption to Home Assistant, which is scraped by Prometheus.
 
 ### Key metric
 
@@ -82,16 +84,21 @@ homeassistant_sensor_power_w{entity="sensor.tech_shelf_power"}
 
 ### Why NOT node_hwmon_power_watt
 
-In a Proxmox virtualised environment, `node_hwmon_power_watt` reports PCIe device power readings from virtualised `/sys/class/hwmon/`. These are **not** real electricity consumption — they reflect what the hypervisor exposes to each VM's virtual hardware monitor. Multiple VMs will show suspiciously similar ~9-10W values regardless of actual workload. This metric is meaningless for "how much electricity does the homelab use?"
+In a Proxmox virtualised environment, `node_hwmon_power_watt` reports PCIe device power readings from virtualised
+`/sys/class/hwmon/`. These are **not** real electricity consumption — they reflect what the hypervisor exposes to each
+VM's virtual hardware monitor. Multiple VMs will show suspiciously similar ~9-10W values regardless of actual workload.
+This metric is meaningless for "how much electricity does the homelab use?"
 
 ### Agent strategy for power consumption questions
 
-Use `prometheus_instant_query` or `prometheus_range_query` with the Home Assistant smart plug metric (`homeassistant_sensor_power_w{entity="sensor.tech_shelf_power"}`). This measures the entire rack at the wall outlet — the only accurate source for electricity consumption.
+Use `prometheus_instant_query` or `prometheus_range_query` with the Home Assistant smart plug metric
+(`homeassistant_sensor_power_w{entity="sensor.tech_shelf_power"}`). This measures the entire rack at the wall outlet —
+the only accurate source for electricity consumption.
 
 ### Agent strategy for UPS questions
 
-If NUT metrics are not in Prometheus, the agent cannot answer UPS questions directly.
-In that case, advise the user to check manually:
+If NUT metrics are not in Prometheus, the agent cannot answer UPS questions directly. In that case, advise the user to
+check manually:
 
 ```sh
 ssh pve && upsc ups@localhost
@@ -109,6 +116,7 @@ NUT config files on Proxmox:
 - `/etc/nut/upsmon.conf` — Monitoring and shutdown config
 
 TrueNAS NUT client config:
+
 - Configured via TrueNAS web UI: Services > UPS
 - Points to Proxmox NUT server IP
 
