@@ -52,6 +52,10 @@ class TestSystemPrompt:
     def test_warns_against_fabrication(self) -> None:
         assert "Never fabricate" in SYSTEM_PROMPT_TEMPLATE
 
+    def test_has_power_consumption_guidance(self) -> None:
+        assert "homeassistant_sensor_power_w" in SYSTEM_PROMPT_TEMPLATE
+        assert "node_hwmon_power_watt" in SYSTEM_PROMPT_TEMPLATE
+
 
 class TestGetTools:
     def test_includes_prometheus_tools(self, mock_settings: object) -> None:

@@ -1,0 +1,69 @@
+id: prom-container-state
+description: "Agent should query container_state to check Docker container health across hosts"
+question: "Are all Docker containers running? Have any restarted recently?"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_instant_query]
+  may_call: [prometheus_search_metrics, runbook_search, prometheus_range_query]
+  must_not_call: []
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result:
+          - metric:
+              __name__: "container_state"
+              exported_hostname: "media"
+              container_name: "jellyfin"
+            value: [1705312800, "1"]
+          - metric:
+              __name__: "container_state"
+              exported_hostname: "media"
+              container_name: "immich"
+            value: [1705312800, "1"]
+          - metric:
+              __name__: "container_state"
+              exported_hostname: "infra"
+              container_name: "traefik"
+            value: [1705312800, "1"]
+          - metric:
+              __name__: "container_state"
+              exported_hostname: "infra"
+              container_name: "adguard"
+            value: [1705312800, "4"]
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        container_state:
+          - type: "gauge"
+            help: "Docker container lifecycle state"
+            unit: ""
+  - url: "http://prometheus.test:9090/api/v1/query_range"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "matrix"
+        result: []
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body: []
+
+rubric: |
+  The answer should:
+  1. Report that most containers are running (state 1)
+  2. Flag the adguard container on infra as restarting (state 4) — this needs attention
+  3. Not treat running containers as concerning
+  4. Identify the host each container is on

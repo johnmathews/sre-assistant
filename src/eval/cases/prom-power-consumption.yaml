@@ -1,0 +1,45 @@
+id: prom-power-consumption
+description: "Agent should query the Home Assistant smart plug metric for power consumption, not node_hwmon_power_watt"
+question: "What's the 3 day average power consumption of the homelab?"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_instant_query]
+  may_call: [prometheus_search_metrics, runbook_search]
+  must_not_call: [grafana_get_alerts]
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result:
+          - metric:
+              __name__: "homeassistant_sensor_power_w"
+              entity: "sensor.tech_shelf_power"
+            value: [1705312800, "127.4"]
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        homeassistant_sensor_power_w:
+          - type: "gauge"
+            help: "Home Assistant sensor power reading in watts"
+            unit: ""
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body: []
+
+rubric: |
+  The answer should:
+  1. Use the homeassistant_sensor_power_w metric with the tech_shelf_power entity
+  2. Report a power consumption value (approximately 127W)
+  3. Reference the server rack or tech shelf — not individual VMs
+  4. NOT present node_hwmon_power_watt as real power consumption

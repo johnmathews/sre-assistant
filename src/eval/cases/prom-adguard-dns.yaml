@@ -1,0 +1,56 @@
+id: prom-adguard-dns
+description: "Agent should query AdGuard DNS metrics for query rates per client"
+question: "Which device is making the most DNS queries right now?"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_instant_query]
+  may_call: [prometheus_search_metrics, runbook_search]
+  must_not_call: [grafana_get_alerts]
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result:
+          - metric:
+              __name__: "adguard_queries_details_histogram_count"
+              client_name: "johns-macbook"
+              user: ""
+            value: [1705312800, "4521"]
+          - metric:
+              __name__: "adguard_queries_details_histogram_count"
+              client_name: "iphone"
+              user: ""
+            value: [1705312800, "2103"]
+          - metric:
+              __name__: "adguard_queries_details_histogram_count"
+              client_name: "smart-tv"
+              user: ""
+            value: [1705312800, "890"]
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        adguard_queries_details_histogram_count:
+          - type: "histogram"
+            help: "AdGuard Home DNS query details"
+            unit: ""
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body: []
+
+rubric: |
+  The answer should:
+  1. Identify johns-macbook as the top DNS query source
+  2. Show a ranking of clients by query volume
+  3. Use increase() or rate() to show recent query rate, not raw counter values
+  4. Identify clients by their client_name label

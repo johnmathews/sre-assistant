@@ -1,0 +1,71 @@
+id: prom-ups-status
+description: "Agent should query NUT UPS metrics for power protection status"
+question: "What's the UPS status? How much battery runtime do we have?"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_instant_query]
+  may_call: [prometheus_search_metrics, runbook_search]
+  must_not_call: []
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result:
+          - metric:
+              __name__: "network_ups_tools_battery_charge"
+            value: [1705312800, "100"]
+          - metric:
+              __name__: "network_ups_tools_battery_runtime"
+            value: [1705312800, "2340"]
+          - metric:
+              __name__: "network_ups_tools_ups_load"
+            value: [1705312800, "18"]
+          - metric:
+              __name__: "network_ups_tools_ups_status"
+              flag: "OL"
+            value: [1705312800, "1"]
+          - metric:
+              __name__: "network_ups_tools_ups_status"
+              flag: "OB"
+            value: [1705312800, "0"]
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        network_ups_tools_battery_charge:
+          - type: "gauge"
+            help: "UPS battery charge percentage"
+            unit: ""
+        network_ups_tools_battery_runtime:
+          - type: "gauge"
+            help: "UPS estimated runtime in seconds"
+            unit: ""
+        network_ups_tools_ups_load:
+          - type: "gauge"
+            help: "UPS load percentage"
+            unit: ""
+        network_ups_tools_ups_status:
+          - type: "gauge"
+            help: "UPS status flag"
+            unit: ""
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body: []
+
+rubric: |
+  The answer should:
+  1. Report the UPS is on-line/mains power (OL flag = 1, OB flag = 0)
+  2. Report battery charge at 100%
+  3. Convert runtime from seconds (2340) to minutes (~39 minutes)
+  4. Report the UPS load at 18% of capacity
+  5. Indicate this is a healthy UPS state

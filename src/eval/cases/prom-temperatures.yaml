@@ -1,0 +1,69 @@
+id: prom-temperatures
+description: "Agent should query IPMI and SMART temperature metrics for thermal monitoring"
+question: "What are the current temperatures? Are any components running hot?"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_instant_query]
+  may_call: [prometheus_search_metrics, runbook_search]
+  must_not_call: [grafana_get_alerts]
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result:
+          - metric:
+              __name__: "ipmi_temperature_celsius"
+              name: "CPU0_TEMP"
+            value: [1705312800, "38"]
+          - metric:
+              __name__: "ipmi_temperature_celsius"
+              name: "DDR4_TEMP"
+            value: [1705312800, "31"]
+          - metric:
+              __name__: "ipmi_temperature_celsius"
+              name: "SYS_TEMP"
+            value: [1705312800, "35"]
+          - metric:
+              __name__: "smartctl_device_temperature"
+              hostname: "truenas"
+              device: "sda"
+              temperature_type: "current"
+            value: [1705312800, "33"]
+          - metric:
+              __name__: "smartctl_device_temperature"
+              hostname: "truenas"
+              device: "sdb"
+              temperature_type: "current"
+            value: [1705312800, "34"]
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        ipmi_temperature_celsius:
+          - type: "gauge"
+            help: "Temperature reading from IPMI in Celsius"
+            unit: ""
+        smartctl_device_temperature:
+          - type: "gauge"
+            help: "Disk temperature from SMART in Celsius"
+            unit: ""
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body: []
+
+rubric: |
+  The answer should:
+  1. Report CPU, memory, and/or system temperatures from IPMI
+  2. Report disk temperatures from SMART if queried
+  3. Assess whether temperatures are within safe ranges (all values here are normal: <40C)
+  4. Not present any of these temperatures as critical or concerning

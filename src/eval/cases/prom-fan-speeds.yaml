@@ -1,0 +1,52 @@
+id: prom-fan-speeds
+description: "Agent should query IPMI fan speed metrics for server fan health"
+question: "What are the current fan speeds on the Proxmox server?"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_instant_query]
+  may_call: [prometheus_search_metrics, runbook_search]
+  must_not_call: [grafana_get_alerts]
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result:
+          - metric:
+              __name__: "ipmi_fan_speed_rpm"
+              name: "CPU0_FAN"
+            value: [1705312800, "1200"]
+          - metric:
+              __name__: "ipmi_fan_speed_rpm"
+              name: "SYS_FAN1"
+            value: [1705312800, "800"]
+          - metric:
+              __name__: "ipmi_fan_speed_rpm"
+              name: "SYS_FAN3"
+            value: [1705312800, "750"]
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        ipmi_fan_speed_rpm:
+          - type: "gauge"
+            help: "Fan speed in RPM from IPMI"
+            unit: ""
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body: []
+
+rubric: |
+  The answer should:
+  1. Report fan RPM values for the CPU fan and system fans
+  2. Identify fans by name (CPU0_FAN, SYS_FAN1, SYS_FAN3 or equivalent)
+  3. Indicate whether the speeds are normal or concerning

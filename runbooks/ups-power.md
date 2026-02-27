@@ -60,6 +60,34 @@ network_ups_tools_battery_runtime_seconds
 nut_input_voltage{ups="ups"}
 ```
 
+## Power Monitoring (Home Assistant)
+
+The entire server rack (Proxmox host + UPS + MikroTik router) is plugged into a smart plug that reports real-time power consumption to Home Assistant, which is scraped by Prometheus.
+
+### Key metric
+
+```promql
+# Real-time rack power draw (watts)
+homeassistant_sensor_power_w{entity="sensor.tech_shelf_power"}
+
+# Average power over 3 days
+avg_over_time(homeassistant_sensor_power_w{entity="sensor.tech_shelf_power"}[3d])
+
+# Peak power in the last 7 days
+max_over_time(homeassistant_sensor_power_w{entity="sensor.tech_shelf_power"}[7d])
+
+# Power trend over the last 24 hours (range query with 15m step)
+homeassistant_sensor_power_w{entity="sensor.tech_shelf_power"}
+```
+
+### Why NOT node_hwmon_power_watt
+
+In a Proxmox virtualised environment, `node_hwmon_power_watt` reports PCIe device power readings from virtualised `/sys/class/hwmon/`. These are **not** real electricity consumption — they reflect what the hypervisor exposes to each VM's virtual hardware monitor. Multiple VMs will show suspiciously similar ~9-10W values regardless of actual workload. This metric is meaningless for "how much electricity does the homelab use?"
+
+### Agent strategy for power consumption questions
+
+Use `prometheus_instant_query` or `prometheus_range_query` with the Home Assistant smart plug metric (`homeassistant_sensor_power_w{entity="sensor.tech_shelf_power"}`). This measures the entire rack at the wall outlet — the only accurate source for electricity consumption.
+
 ### Agent strategy for UPS questions
 
 If NUT metrics are not in Prometheus, the agent cannot answer UPS questions directly.

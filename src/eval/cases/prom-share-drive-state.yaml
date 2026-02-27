@@ -1,0 +1,59 @@
+id: prom-share-drive-state
+description: "Agent should query share_drive_probe_state_enriched for NFS/SMB mount health"
+question: "Are all NFS shares mounted and accessible?"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_instant_query]
+  may_call: [prometheus_search_metrics, runbook_search]
+  must_not_call: []
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result:
+          - metric:
+              __name__: "share_drive_probe_state_enriched"
+              hostname: "media"
+              protocol: "nfs"
+              mount_name: "media_share"
+            value: [1705312800, "1"]
+          - metric:
+              __name__: "share_drive_probe_state_enriched"
+              hostname: "media"
+              protocol: "nfs"
+              mount_name: "downloads"
+            value: [1705312800, "1"]
+          - metric:
+              __name__: "share_drive_probe_state_enriched"
+              hostname: "infra"
+              protocol: "nfs"
+              mount_name: "backups"
+            value: [1705312800, "0"]
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        share_drive_probe_state_enriched:
+          - type: "gauge"
+            help: "NFS/SMB share drive probe state"
+            unit: ""
+  - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
+    method: GET
+    status: 200
+    body: []
+
+rubric: |
+  The answer should:
+  1. Report that most shares are OK (value 1)
+  2. Flag the backups share on infra as failed (value 0) — this needs investigation
+  3. Identify shares by mount name and the host they are mounted on
+  4. Suggest troubleshooting steps or reference the NFS runbook
