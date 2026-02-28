@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from typing import ClassVar
 
@@ -75,6 +76,12 @@ class Settings(BaseSettings):
             raise ValueError("ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic")
         if self.llm_provider == "openai" and not self.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER=openai")
+        # docker-compose env_file turns "OPENAI_BASE_URL=" into an empty-string
+        # env var.  The OpenAI Python SDK reads this and tries to use "" as a
+        # base URL, causing "Request URL is missing protocol".  Remove it so
+        # the SDK falls back to its default (https://api.openai.com/v1).
+        if not self.openai_base_url and os.environ.get("OPENAI_BASE_URL") == "":
+            del os.environ["OPENAI_BASE_URL"]
         return self
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
