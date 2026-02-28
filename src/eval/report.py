@@ -11,7 +11,6 @@ _FAIL = "\033[31mFAIL\033[0m"
 def print_case_result(result: EvalResult) -> None:
     """Print a single eval case result to stderr."""
     status = _PASS if result.passed else _FAIL
-    print(f"\n{'=' * 70}", file=sys.stderr)
     print(f"[{status}] {result.case_id}: {result.description}", file=sys.stderr)
 
     # Tool score
@@ -32,7 +31,7 @@ def print_case_result(result: EvalResult) -> None:
     answer_preview = result.agent_answer[:200]
     if len(result.agent_answer) > 200:
         answer_preview += "..."
-    print(f"  Answer preview: {answer_preview}", file=sys.stderr)
+    print(f"  Answer preview: {answer_preview}\n", file=sys.stderr, flush=True)
 
 
 def print_summary(results: list[EvalResult]) -> None:

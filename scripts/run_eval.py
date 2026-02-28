@@ -39,10 +39,11 @@ async def _run_all(case_ids: list[str] | None) -> bool:
     print(f"LLM provider: {provider}", file=sys.stderr)
     print(f"LLM model:    {model}", file=sys.stderr)
     print(f"Runbook search: disabled (evals use mocked HTTP, not RAG)", file=sys.stderr)
-    print(f"Running {len(cases)} eval case(s)...", file=sys.stderr)
+    print(f"Running {len(cases)} eval case(s)...\n", file=sys.stderr, flush=True)
 
     results = []
-    for case in cases:
+    for i, case in enumerate(cases, 1):
+        print(f"[{i}/{len(cases)}] Running: {case.id}...", file=sys.stderr, flush=True)
         result = await run_eval_case(
             case,
             openai_api_key=config["openai_api_key"],
