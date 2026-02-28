@@ -51,6 +51,24 @@ class TestJudgeAnswer:
 
         assert not score.passed
 
+    async def test_judge_strips_markdown_fences(self) -> None:
+        fenced = '```json\n{"passed": true, "explanation": "All criteria met"}\n```'
+        mock_response = AIMessage(content=fenced)
+        with patch("src.eval.judge.ChatOpenAI") as mock_llm_cls:
+            mock_instance = AsyncMock()
+            mock_instance.ainvoke.return_value = mock_response
+            mock_llm_cls.return_value = mock_instance
+
+            score = await judge_answer(
+                question="What alerts are firing?",
+                answer="HighCPU on jellyfin",
+                rubric="Should mention HighCPU",
+                openai_api_key="sk-fake",
+            )
+
+        assert score.passed
+        assert "criteria" in score.explanation.lower()
+
     async def test_judge_handles_malformed_json(self) -> None:
         mock_response = AIMessage(content="This is not JSON at all")
         with patch("src.eval.judge.ChatOpenAI") as mock_llm_cls:

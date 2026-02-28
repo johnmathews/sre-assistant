@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
@@ -92,8 +93,12 @@ async def judge_answer(
     response = await llm.ainvoke(prompt)
     raw_text = str(response.content)
 
+    # Strip markdown code fences (```json ... ```) that some models add
+    stripped = re.sub(r"^```(?:json)?\s*\n?", "", raw_text.strip())
+    stripped = re.sub(r"\n?```\s*$", "", stripped).strip()
+
     try:
-        parsed: dict[str, object] = json.loads(raw_text)
+        parsed: dict[str, object] = json.loads(stripped)
         return JudgeScore(
             passed=bool(parsed.get("passed", False)),
             explanation=str(parsed.get("explanation", "No explanation provided")),
