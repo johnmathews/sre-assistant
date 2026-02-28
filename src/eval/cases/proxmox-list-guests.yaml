@@ -47,3 +47,4 @@ rubric: |
   1. List the VMs/containers (infra, jellyfin, media)
   2. Indicate their types (LXC vs QEMU/VM)
   3. Show their running status
+  Note: The mock data has maxmem (allocated RAM) and mem (current usage). Reporting either value as the guest's RAM is acceptable. The cpu field is a fraction of allocated cores — reporting it as a percentage is acceptable.

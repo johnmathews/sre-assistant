@@ -35,6 +35,6 @@ memory_seed:
 
 rubric: |
   The answer should:
-  1. Call memory_get_previous_report to retrieve the last archived report
+  1. Reference data from the archived weekly reliability report
   2. Summarize the relevant findings about error rates (tool error rate 2.1%, LLM error rate 0.3%)
   3. Mention that the tool error rate exceeded the SLO target

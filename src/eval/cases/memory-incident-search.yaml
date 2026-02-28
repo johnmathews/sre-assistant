@@ -39,6 +39,6 @@ memory_seed:
 
 rubric: |
   The answer should:
-  1. Call memory_search_incidents to look for past HighCPU incidents
+  1. Reference past incident data showing a previous HighCPU event on jellyfin
   2. Report that a past HighCPU incident on jellyfin was found
   3. Mention the root cause (4K transcoding / hardware acceleration) and resolution

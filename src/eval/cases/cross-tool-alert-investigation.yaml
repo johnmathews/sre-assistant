@@ -64,6 +64,19 @@ mocks:
           - type: "gauge"
             help: "Memory total bytes"
             unit: ""
+  - url: "http://prometheus.test:9090/api/v1/label/__name__/values"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        - "node_memory_MemAvailable_bytes"
+        - "node_memory_MemTotal_bytes"
+        - "node_memory_MemFree_bytes"
+  - url: "http://grafana.test:3000/api/v1/provisioning/alert-rules"
+    method: GET
+    status: 200
+    body: []
 
 rubric: |
   The answer should:

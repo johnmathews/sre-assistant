@@ -52,5 +52,5 @@ mocks:
 rubric: |
   The answer should:
   1. Report the tank pool is ONLINE and healthy
-  2. Report space usage (approximately 5TB used, 11TB available)
+  2. Report space usage (approximately 5TiB or 5-6TB used, 10TiB or 11TB available — either unit system is correct)
   3. Mention the mirror topology if details were provided

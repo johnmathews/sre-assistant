@@ -56,6 +56,13 @@ mocks:
       data:
         resultType: "matrix"
         result: []
+  - url: "http://prometheus.test:9090/api/v1/label/__name__/values"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        - "container_state"
   - url: "http://grafana.test:3000/api/alertmanager/grafana/api/v2/alerts/groups"
     method: GET
     status: 200
@@ -64,6 +71,6 @@ mocks:
 rubric: |
   The answer should:
   1. Report that most containers are running (state 1)
-  2. Flag the adguard container on infra as restarting (state 4) — this needs attention
+  2. Flag the adguard container as restarting or in a non-running state (state 4) — this needs attention
   3. Not treat running containers as concerning
-  4. Identify the host each container is on
+  4. Identify the host each container is on (media or infra)

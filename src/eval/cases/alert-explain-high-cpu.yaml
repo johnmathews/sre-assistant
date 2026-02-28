@@ -34,3 +34,4 @@ rubric: |
   1. Identify the HighCPU alert firing on jellyfin
   2. Mention the severity (warning)
   3. Provide some context about what high CPU means or suggest investigation steps
+  Note: Computing alert duration from the startsAt timestamp is acceptable and not fabrication.
