@@ -77,7 +77,7 @@ this case the per-token costs above don't apply — the subscription covers usag
 | Service            | What it provides                                   | Auth                                                    |
 | ------------------ | -------------------------------------------------- | ------------------------------------------------------- |
 | **OpenAI API**     | LLM inference (when `LLM_PROVIDER=openai`)         | API key (`OPENAI_API_KEY`)                              |
-| **Anthropic API**  | LLM inference (when `LLM_PROVIDER=anthropic`)      | API key (`ANTHROPIC_API_KEY`)                           |
+| **Anthropic API**  | LLM inference (when `LLM_PROVIDER=anthropic`)      | API key or OAuth token (`ANTHROPIC_API_KEY`)            |
 | **Prometheus**     | Metrics storage and PromQL query engine             | None (HTTP)                                             |
 | **Grafana**        | Unified alerting (alert states + rule definitions)  | Service account token (`GRAFANA_SERVICE_ACCOUNT_TOKEN`) |
 
@@ -93,6 +93,30 @@ Only one LLM provider is required — set `LLM_PROVIDER` to select which one.
 | **Proxmox Backup Server** | Backup status, datastore usage, backup tasks              | API token (`PBS_API_TOKEN` as `user@realm!tokenid=secret`)     |
 
 ## Authentication Setup
+
+### Anthropic API
+
+Two authentication methods are supported, configured via `ANTHROPIC_API_KEY`:
+
+**Regular API key** (`sk-ant-api03-*`): From [console.anthropic.com](https://console.anthropic.com) → API Keys.
+Usage-based billing. Set `ANTHROPIC_API_KEY` to the key value — the agent sends it as the standard `x-api-key` header.
+
+**OAuth token** (`sk-ant-oat*`): From a Claude Max/Pro subscription via `claude setup-token`. Flat-rate billing
+(included in the subscription). The agent auto-detects the token prefix and switches to OAuth mode, which requires:
+
+- `Authorization: Bearer {token}` instead of `x-api-key`
+- `anthropic-beta: claude-code-20250219,oauth-2025-04-20` header
+- `user-agent: claude-cli/{version}` and `x-app: cli` headers
+- System prompt prefixed with `"You are Claude Code, Anthropic's official CLI for Claude."`
+- Suppression of the `x-api-key` header via the SDK's `Omit` sentinel
+
+All of this is handled automatically in `src/agent/llm.py::create_anthropic_chat()`. The detection is based on the
+token prefix — no configuration beyond setting `ANTHROPIC_API_KEY` is needed.
+
+`ChatAnthropic` (langchain-anthropic) does not expose the underlying SDK's `auth_token` parameter, so the OAuth headers
+are injected via `default_headers` and the placeholder `x-api-key` is suppressed by patching the SDK client's
+`_custom_headers` with the `Omit` sentinel after construction. This causes the SDK's `_merge_mappings` to strip the
+`X-Api-Key` entry from outgoing requests.
 
 ### Prometheus
 

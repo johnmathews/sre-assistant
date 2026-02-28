@@ -143,6 +143,25 @@ The factory function `src/agent/llm.py::create_llm()` centralises LLM instantiat
 `ChatOpenAI` directly. Both providers share the same `MetricsCallbackHandler` — Claude models populate `llm_output` with
 `token_usage` and `model_name` in the same format as OpenAI, so cost tracking works automatically.
 
+### Anthropic OAuth Token Handling
+
+When `ANTHROPIC_API_KEY` starts with `sk-ant-oat`, `create_anthropic_chat()` activates OAuth mode:
+
+```
+create_anthropic_chat(api_key, model, temperature, max_tokens)
+  1. Detect OAuth prefix → set default_headers:
+     - Authorization: Bearer {token}
+     - anthropic-beta: claude-code-20250219,oauth-2025-04-20
+     - user-agent: claude-cli/2.1.62
+     - x-app: cli
+  2. Construct ChatAnthropic with placeholder api_key + headers
+  3. Post-construction: inject Omit() into _custom_headers["X-Api-Key"]
+     on both sync and async clients to suppress the placeholder
+```
+
+`build_agent()` also prepends `"You are Claude Code, Anthropic's official CLI for Claude."` to the system prompt when
+OAuth is detected. Regular API keys (`sk-ant-api03-*`) skip all of this and pass the key directly.
+
 ## Metrics Flow
 
 Self-instrumentation metrics are collected at two levels:
