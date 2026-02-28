@@ -1,9 +1,11 @@
 """Tests for LLM provider selection and OpenAI proxy support."""
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.config import Settings
 from src.observability.metrics import COST_PER_TOKEN
 
 # ---------------------------------------------------------------------------
@@ -64,6 +66,84 @@ class TestBaseUrlConversion:
     def test_non_empty_string_passes_through(self) -> None:
         base_url = "http://localhost:3456/v1"
         assert (base_url or None) == "http://localhost:3456/v1"
+
+
+class TestSettingsValidation:
+    """Tests for Settings _validate_provider_keys validator."""
+
+    _BASE_KWARGS: dict[str, str | int | bool] = {
+        "prometheus_url": "http://prom:9090",
+        "grafana_url": "http://graf:3000",
+        "grafana_service_account_token": "glsa_test",
+    }
+
+    def test_anthropic_provider_requires_anthropic_key(self) -> None:
+        with pytest.raises(ValueError, match="ANTHROPIC_API_KEY is required"):
+            Settings(
+                **self._BASE_KWARGS,  # type: ignore[arg-type]
+                llm_provider="anthropic",
+                anthropic_api_key="",
+            )
+
+    def test_openai_provider_requires_openai_key(self) -> None:
+        with pytest.raises(ValueError, match="OPENAI_API_KEY is required"):
+            Settings(
+                **self._BASE_KWARGS,  # type: ignore[arg-type]
+                llm_provider="openai",
+                openai_api_key="",
+            )
+
+    def test_anthropic_provider_does_not_require_openai_key(self) -> None:
+        s = Settings(
+            **self._BASE_KWARGS,  # type: ignore[arg-type]
+            llm_provider="anthropic",
+            anthropic_api_key="sk-ant-test",
+            openai_api_key="",
+        )
+        assert s.llm_provider == "anthropic"
+        assert s.openai_api_key == ""
+
+    def test_openai_provider_does_not_require_anthropic_key(self) -> None:
+        s = Settings(
+            **self._BASE_KWARGS,  # type: ignore[arg-type]
+            llm_provider="openai",
+            openai_api_key="sk-test",
+            anthropic_api_key="",
+        )
+        assert s.llm_provider == "openai"
+        assert s.anthropic_api_key == ""
+
+    def test_both_keys_can_be_set(self) -> None:
+        s = Settings(
+            **self._BASE_KWARGS,  # type: ignore[arg-type]
+            llm_provider="openai",
+            openai_api_key="sk-test",
+            anthropic_api_key="sk-ant-test",
+        )
+        assert s.openai_api_key == "sk-test"
+        assert s.anthropic_api_key == "sk-ant-test"
+
+    def test_empty_openai_base_url_env_var_cleaned_up(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When docker-compose sets OPENAI_BASE_URL= (empty), the validator removes it."""
+        monkeypatch.setenv("OPENAI_BASE_URL", "")
+        Settings(
+            **self._BASE_KWARGS,  # type: ignore[arg-type]
+            llm_provider="openai",
+            openai_api_key="sk-test",
+            openai_base_url="",
+        )
+        assert os.environ.get("OPENAI_BASE_URL") is None
+
+    def test_non_empty_openai_base_url_not_removed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A real OPENAI_BASE_URL value is left in the environment."""
+        monkeypatch.setenv("OPENAI_BASE_URL", "http://proxy:3456/v1")
+        Settings(
+            **self._BASE_KWARGS,  # type: ignore[arg-type]
+            llm_provider="openai",
+            openai_api_key="sk-test",
+            openai_base_url="http://proxy:3456/v1",
+        )
+        assert os.environ.get("OPENAI_BASE_URL") == "http://proxy:3456/v1"
 
 
 class TestCreateLlmFactory:
@@ -232,6 +312,51 @@ class TestReportGeneratorAnthropicProvider:
 
             await _generate_narrative({"alerts": None})
             mock_llm_cls.assert_called_once()
+
+
+@pytest.mark.integration
+class TestInvokeAgentModelName:
+    """Verify invoke_agent passes the correct model name to save_conversation."""
+
+    @pytest.mark.asyncio
+    async def test_anthropic_model_saved_in_conversation_history(self, mock_settings: MagicMock) -> None:
+        mock_settings.llm_provider = "anthropic"
+        mock_settings.anthropic_model = "claude-sonnet-4-20250514"
+        mock_settings.conversation_history_dir = "/tmp/test-convos"
+
+        from langchain_core.messages import AIMessage
+
+        fake_result = {"messages": [AIMessage(content="Test response")]}
+        fake_agent = MagicMock()
+        fake_agent.ainvoke = AsyncMock(return_value=fake_result)
+
+        with patch("src.agent.agent.save_conversation") as mock_save:
+            from src.agent.agent import invoke_agent
+
+            await invoke_agent(fake_agent, "hello", session_id="test-session")
+            mock_save.assert_called_once()
+            _, _, _, model_arg = mock_save.call_args.args
+            assert model_arg == "claude-sonnet-4-20250514"
+
+    @pytest.mark.asyncio
+    async def test_openai_model_saved_in_conversation_history(self, mock_settings: MagicMock) -> None:
+        mock_settings.llm_provider = "openai"
+        mock_settings.openai_model = "gpt-4o-mini"
+        mock_settings.conversation_history_dir = "/tmp/test-convos"
+
+        from langchain_core.messages import AIMessage
+
+        fake_result = {"messages": [AIMessage(content="Test response")]}
+        fake_agent = MagicMock()
+        fake_agent.ainvoke = AsyncMock(return_value=fake_result)
+
+        with patch("src.agent.agent.save_conversation") as mock_save:
+            from src.agent.agent import invoke_agent
+
+            await invoke_agent(fake_agent, "hello", session_id="test-session")
+            mock_save.assert_called_once()
+            _, _, _, model_arg = mock_save.call_args.args
+            assert model_arg == "gpt-4o-mini"
 
 
 @pytest.mark.integration

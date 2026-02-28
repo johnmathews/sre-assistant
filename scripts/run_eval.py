@@ -34,6 +34,11 @@ async def _run_all(case_ids: list[str] | None) -> bool:
     config = _get_llm_config()
     cases = load_eval_cases(case_ids)
 
+    provider = config["llm_provider"]
+    model = config["anthropic_model"] if provider == "anthropic" else config["openai_model"]
+    print(f"LLM provider: {provider}", file=sys.stderr)
+    print(f"LLM model:    {model}", file=sys.stderr)
+    print(f"Runbook search: disabled (evals use mocked HTTP, not RAG)", file=sys.stderr)
     print(f"Running {len(cases)} eval case(s)...", file=sys.stderr)
 
     results = []

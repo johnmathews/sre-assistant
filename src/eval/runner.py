@@ -189,8 +189,16 @@ async def run_eval_case(
             p.start()
         runbook_patch.start()
 
+        # Suppress the "Runbook search tool unavailable" warning — we intentionally
+        # disabled it above, so the warning is expected noise during evals.
+        agent_logger = logging.getLogger("src.agent.agent")
+        prev_level = agent_logger.level
+        agent_logger.setLevel(logging.ERROR)
+
         # Import agent builder inside the patch context so it sees fake settings
         from src.agent.agent import build_agent
+
+        agent_logger.setLevel(prev_level)
 
         # Set up respx mocks
         with respx.mock(assert_all_called=False) as router:
@@ -238,11 +246,13 @@ async def run_eval_case(
     # LLM-as-judge scoring
     judge_score: JudgeScore
     try:
+        judge_model = anthropic_model if llm_provider == "anthropic" else openai_model
         judge_score = await judge_answer(
             question=case.question,
             answer=answer,
             rubric=case.rubric,
             openai_api_key=openai_api_key,
+            model=judge_model,
             base_url=openai_base_url or None,
             llm_provider=llm_provider,
             anthropic_api_key=anthropic_api_key,
