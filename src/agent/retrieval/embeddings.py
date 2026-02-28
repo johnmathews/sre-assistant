@@ -174,11 +174,21 @@ def load_all_documents() -> list[Document]:
 
 
 def get_embeddings() -> OpenAIEmbeddings:
-    """Create an OpenAI embeddings instance using project settings."""
+    """Create an OpenAI embeddings instance using project settings.
+
+    Embeddings always use OpenAI (Anthropic has no embeddings API).
+    OPENAI_API_KEY is required even when LLM_PROVIDER=anthropic.
+    """
     settings = get_settings()
+    if not settings.openai_api_key:
+        raise ValueError(
+            "OPENAI_API_KEY is required for embeddings (used by make ingest and runbook search) "
+            "even when LLM_PROVIDER=anthropic. Anthropic does not offer an embeddings API."
+        )
     return OpenAIEmbeddings(
         api_key=SecretStr(settings.openai_api_key),
         model="text-embedding-3-small",
+        base_url=settings.openai_base_url or None,
     )
 
 
