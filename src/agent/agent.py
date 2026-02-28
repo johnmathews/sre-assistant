@@ -340,11 +340,12 @@ async def invoke_agent(
 
     # Persist full conversation history if configured
     if settings.conversation_history_dir:
+        active_model = settings.anthropic_model if settings.llm_provider == "anthropic" else settings.openai_model
         save_conversation(
             settings.conversation_history_dir,
             effective_session_id,
             messages,
-            settings.openai_model,
+            active_model,
         )
 
     response_text = "No response generated."

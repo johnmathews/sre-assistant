@@ -94,7 +94,8 @@ class HealthResponse(BaseModel):
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Build the agent once at startup, tear down on shutdown."""
     settings = get_settings()
-    APP_INFO.info({"version": "0.1.0", "model": settings.openai_model})
+    active_model = settings.anthropic_model if settings.llm_provider == "anthropic" else settings.openai_model
+    APP_INFO.info({"version": "0.1.0", "model": active_model})
 
     logger.info("Building SRE assistant agent...")
     try:
@@ -303,7 +304,8 @@ async def health() -> HealthResponse:
     else:
         overall = "degraded"
 
-    return HealthResponse(status=overall, model=settings.openai_model, components=components)
+    active_model = settings.anthropic_model if settings.llm_provider == "anthropic" else settings.openai_model
+    return HealthResponse(status=overall, model=active_model, components=components)
 
 
 @app.post("/report", response_model=ReportResponse)
