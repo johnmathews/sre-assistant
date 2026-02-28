@@ -197,7 +197,7 @@ YAML eval case
 ### Running
 
 ```bash
-make eval                                          # Run all 17 cases (costs tokens)
+make eval                                          # Run all 30 cases (costs tokens)
 make eval ARGS="--case alert-explain-high-cpu"     # Single case
 uv run pytest tests/test_eval.py -v                # Unit tests (free)
 uv run pytest tests/test_eval_integration.py -v    # Integration tests (free)
@@ -205,7 +205,7 @@ uv run pytest tests/test_eval_integration.py -v    # Integration tests (free)
 
 ### Eval Cases
 
-20 cases across 8 categories: alerts (4), Prometheus (5), Proxmox (2), PBS (1), TrueNAS (2), Loki (2), memory (3),
+30 cases across 8 categories: alerts (4), Prometheus (14), Proxmox (2), PBS (1), TrueNAS (2), Loki (3), memory (3),
 cross-tool (1). Cases are YAML files in `src/eval/cases/`.
 
 ## Weekly Reliability Report

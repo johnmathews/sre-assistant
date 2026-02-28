@@ -18,6 +18,9 @@ mocks:
         name: "tank"
         status: "ONLINE"
         healthy: true
+        size: 16492674416640
+        allocated: 5497558138880
+        free: 10995116277760
         topology:
           data:
             - type: "MIRROR"
@@ -31,13 +34,15 @@ mocks:
     method: GET
     status: 200
     body:
-      - name: "tank"
+      - id: "tank"
+        name: "tank"
         pool: "tank"
         used:
           rawvalue: "5497558138880"
         available:
           rawvalue: "10995116277760"
-      - name: "tank/media"
+      - id: "tank/media"
+        name: "tank/media"
         pool: "tank"
         used:
           rawvalue: "3298534883328"

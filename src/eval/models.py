@@ -20,6 +20,51 @@ class ExpectedTools(BaseModel):
     must_not_call: list[str] = Field(default_factory=list)
 
 
+class MemorySeedBaseline(BaseModel):
+    """Seed data for a metric baseline record."""
+
+    metric_name: str
+    labels: str = "{}"
+    avg_value: float
+    p95_value: float | None = None
+    min_value: float | None = None
+    max_value: float | None = None
+    sample_count: int = 100
+    window_days: int = 7
+
+
+class MemorySeedIncident(BaseModel):
+    """Seed data for an incident record."""
+
+    title: str
+    description: str
+    alert_name: str | None = None
+    root_cause: str | None = None
+    resolution: str | None = None
+    severity: str = "info"
+    services: str = ""
+
+
+class MemorySeedReport(BaseModel):
+    """Seed data for an archived report record."""
+
+    report_markdown: str
+    report_data: str = "{}"
+    lookback_days: int = 7
+    active_alerts: int = 0
+    slo_failures: int = 0
+    total_log_errors: int = 0
+    estimated_cost: float = 0.0
+
+
+class MemorySeed(BaseModel):
+    """Seed data for the agent memory store (SQLite)."""
+
+    baselines: list[MemorySeedBaseline] = Field(default_factory=list)
+    incidents: list[MemorySeedIncident] = Field(default_factory=list)
+    reports: list[MemorySeedReport] = Field(default_factory=list)
+
+
 class EvalCase(BaseModel):
     """A single evaluation case loaded from YAML."""
 
@@ -30,6 +75,7 @@ class EvalCase(BaseModel):
     expected_tools: ExpectedTools
     mocks: list[MockResponse]
     rubric: str
+    memory_seed: MemorySeed | None = None
 
 
 class ToolScore(BaseModel):

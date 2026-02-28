@@ -6,7 +6,7 @@ required_services: [grafana]
 
 expected_tools:
   must_call: [grafana_get_alerts, prometheus_instant_query]
-  may_call: [prometheus_search_metrics, prometheus_range_query]
+  may_call: [prometheus_range_query]
   must_not_call: []
 
 mocks:

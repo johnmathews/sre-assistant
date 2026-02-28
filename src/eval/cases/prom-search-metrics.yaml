@@ -10,6 +10,16 @@ expected_tools:
   must_not_call: [prometheus_instant_query, grafana_get_alerts]
 
 mocks:
+  - url: "http://prometheus.test:9090/api/v1/label/__name__/values"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        - "node_memory_MemTotal_bytes"
+        - "node_memory_MemAvailable_bytes"
+        - "node_memory_MemFree_bytes"
+        - "pve_memory_usage_bytes"
   - url: "http://prometheus.test:9090/api/v1/metadata"
     method: GET
     status: 200

@@ -9,7 +9,29 @@ expected_tools:
   may_call: [prometheus_instant_query, memory_search_incidents]
   must_not_call: []
 
-mocks: []
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result:
+          - metric:
+              hostname: "media"
+            value: [1705312800, "0.85"]
+
+memory_seed:
+  baselines:
+    - metric_name: "node_cpu_usage_ratio"
+      labels: '{"hostname": "media"}'
+      avg_value: 0.45
+      p95_value: 0.78
+      min_value: 0.12
+      max_value: 0.82
+      sample_count: 168
+      window_days: 7
 
 rubric: |
   The answer should:

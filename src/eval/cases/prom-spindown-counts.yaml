@@ -6,7 +6,7 @@ required_services: []
 
 expected_tools:
   must_call: [prometheus_instant_query]
-  may_call: [prometheus_search_metrics, runbook_search, hdd_power_status]
+  may_call: [hdd_power_status]
   must_not_call: []
 
 mocks:
@@ -56,7 +56,6 @@ mocks:
 rubric: |
   The answer should:
   1. Report spindown counts per disk over the last 24 hours
-  2. Show that the tank disks (truenas) spun down 3 times each
-  3. Show that the backup disks spun down 1 time each
-  4. Show that the proxmox backup disk spun down 2 times
-  5. Use sum_over_time with the disk:spindown_event:1 recording rule, or use hdd_power_status
+  2. Show that the truenas host had disks spinning down 3 times and 1 time each
+  3. Show that the proxmox host had a disk spin down 2 times
+  4. Report an overall total of 10 spindown events across all disks

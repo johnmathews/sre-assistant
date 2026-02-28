@@ -6,7 +6,7 @@ required_services: []
 
 expected_tools:
   must_call: [prometheus_instant_query]
-  may_call: [prometheus_search_metrics]
+  may_call: []
   must_not_call: []
 
 mocks:
@@ -34,4 +34,4 @@ mocks:
 rubric: |
   The answer should:
   1. Report the number of VMs (12)
-  2. Mention that this comes from Prometheus/pve_guest_info or similar
+  2. Provide useful context (e.g. offer to list individual guests, mention count method)

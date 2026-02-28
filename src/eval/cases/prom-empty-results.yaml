@@ -1,0 +1,32 @@
+id: prom-empty-results
+description: "Agent should handle empty Prometheus results gracefully and fail fast"
+question: "What is the GPU utilization on the Proxmox host?"
+
+required_services: []
+
+expected_tools:
+  must_call: [prometheus_instant_query]
+  may_call: []
+  must_not_call: []
+
+mocks:
+  - url: "http://prometheus.test:9090/api/v1/query"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data:
+        resultType: "vector"
+        result: []
+  - url: "http://prometheus.test:9090/api/v1/metadata"
+    method: GET
+    status: 200
+    body:
+      status: "success"
+      data: {}
+
+rubric: |
+  The answer should:
+  1. Clearly state that no GPU utilization data was found or the metric returned no results
+  2. NOT fabricate GPU usage values
+  3. Suggest possible reasons (metric not available, exporter not configured) or how to check manually

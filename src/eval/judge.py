@@ -25,17 +25,23 @@ whether the assistant's answer meets the quality criteria in the rubric.
 ## Rubric
 {rubric}
 
+## Available data
+The assistant had access to the following mock data from infrastructure tools:
+{available_data}
+
 ## Instructions
-Evaluate the answer against the rubric. Consider:
-- Does the answer address the key points in the rubric?
-- Is the information accurate based on the data the assistant had access to?
-- Is the answer actionable and clear?
+Evaluate the answer against EACH numbered criterion in the rubric:
+1. Check every numbered criterion individually.
+2. The answer must address ALL numbered criteria to pass. A missing criterion is a failure.
+3. The answer must not fabricate specific values (metric numbers, hostnames, alert names) \
+that are not present in the available data above. General knowledge and recommendations are fine.
+4. Minor wording differences are acceptable — judge the substance, not exact phrasing.
 
 Respond with ONLY a JSON object (no markdown fences):
 {{"passed": true, "explanation": "Brief explanation of your assessment"}}
 
-Set "passed" to true if the answer substantially meets the rubric criteria. \
-Minor omissions are acceptable; only fail if important criteria are missed.
+Set "passed" to true ONLY IF the answer addresses every numbered criterion in the rubric \
+and does not contain fabricated data contradicting the available data.
 """
 
 
@@ -48,6 +54,7 @@ async def judge_answer(
     base_url: str | None = None,
     llm_provider: str = "openai",
     anthropic_api_key: str = "",
+    available_data: str = "Not provided.",
 ) -> JudgeScore:
     """Score an agent answer against a rubric using LLM-as-judge.
 
@@ -60,6 +67,7 @@ async def judge_answer(
         base_url: Optional OpenAI-compatible proxy URL.
         llm_provider: "openai" or "anthropic".
         anthropic_api_key: Anthropic API key (required when llm_provider=anthropic).
+        available_data: Summary of mock data available to the agent for hallucination detection.
 
     Returns:
         JudgeScore with passed/failed and explanation.
@@ -80,7 +88,7 @@ async def judge_answer(
             base_url=base_url,
         )
 
-    prompt = _JUDGE_PROMPT.format(question=question, answer=answer, rubric=rubric)
+    prompt = _JUDGE_PROMPT.format(question=question, answer=answer, rubric=rubric, available_data=available_data)
     response = await llm.ainvoke(prompt)
     raw_text = str(response.content)
 

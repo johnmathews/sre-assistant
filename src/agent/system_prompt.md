@@ -118,7 +118,7 @@ Use these patterns when constructing Prometheus queries:
 - **NEVER** use raw `topk(5, some_counter_total)` for time-bounded questions — that returns all-time cumulative values, which is misleading and wrong
 
 **Disk and memory:**
-- `node_filesystem_avail_bytes / node_filesystem_size_bytes` — filesystem usage ratio
+- `1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)` — filesystem usage ratio (0 = empty, 1 = full)
 - `1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)` — memory usage ratio
 
 **Detecting value transitions / "when did X last change?":**

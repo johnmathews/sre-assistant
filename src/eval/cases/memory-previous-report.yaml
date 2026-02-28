@@ -11,8 +11,30 @@ expected_tools:
 
 mocks: []
 
+memory_seed:
+  reports:
+    - report_markdown: |
+        # Weekly Reliability Report
+
+        ## Error Rates
+        - Tool error rate: 2.1% (above 1% SLO target). Primary contributor: Prometheus query timeouts during peak hours.
+        - LLM error rate: 0.3% (within 1% target).
+
+        ## Alerts
+        3 alerts fired during the week: HighCPU (jellyfin), LowDiskSpace (infra), HighMemory (infra).
+
+        ## SLO Status
+        - Response latency p95: 8.2s (within 15s target)
+        - Tool success rate: 97.9% (below 99% target — due to Prometheus timeouts)
+        - Availability: 99.8% (within 99.5% target)
+      lookback_days: 7
+      active_alerts: 3
+      slo_failures: 1
+      total_log_errors: 47
+      estimated_cost: 0.42
+
 rubric: |
   The answer should:
   1. Call memory_get_previous_report to retrieve the last archived report
-  2. Summarize the relevant findings about error rates from that report
-  3. If no previous report exists, clearly state that
+  2. Summarize the relevant findings about error rates (tool error rate 2.1%, LLM error rate 0.3%)
+  3. Mention that the tool error rate exceeded the SLO target

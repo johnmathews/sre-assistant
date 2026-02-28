@@ -508,8 +508,10 @@ queries (not agent-driven) with a single LLM call for a narrative summary.
 
 ## Evaluation Framework
 
-17 curated eval cases across 7 categories validate the agent's tool selection and answer quality. Uses real LLM
-calls against mocked infrastructure APIs. Run with `make eval`.
+30 curated eval cases across 8 categories validate the agent's tool selection and answer quality. Uses real LLM
+calls against mocked infrastructure APIs with deterministic tool scoring and LLM-as-judge answer grading. Features
+separate judge model selection (avoids self-evaluation bias), hallucination detection via available-data context, and
+memory seed support for testing baseline/incident/report retrieval. Run with `make eval`.
 
 ---
 
@@ -744,7 +746,7 @@ homelab-sre-assistant/
 │   │   ├── runner.py             # Core runner (settings patching, mocks, scoring)
 │   │   ├── judge.py              # LLM-as-judge answer quality scoring
 │   │   ├── report.py             # Terminal report formatting
-│   │   └── cases/                # 20 YAML eval cases
+│   │   └── cases/                # 30 YAML eval cases
 │   ├── memory/
 │   │   ├── store.py              # SQLite connection, schema, CRUD
 │   │   ├── models.py             # TypedDicts for memory records
@@ -764,7 +766,7 @@ homelab-sre-assistant/
 │   └── install-hooks.sh          # Install git pre-push hook
 ├── dashboards/
 │   └── sre-assistant-sli.json    # Grafana SLI/SLO dashboard
-├── tests/                        # Unit + integration tests (646 passing)
+├── tests/                        # Unit + integration tests (658 passing)
 ├── docs/                         # Design documentation
 │   ├── architecture.md           # System overview, data flow, deployment
 │   ├── tool-reference.md         # All tools with inputs and examples

@@ -1,10 +1,14 @@
 """Core eval runner — patches settings, mocks HTTP, invokes agent, scores results."""
 
 import asyncio
+import contextlib
 import logging
+import os
 import sys
+import tempfile
 import time
 from collections.abc import Coroutine
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import patch
 
@@ -13,7 +17,7 @@ import respx
 from langchain_core.messages import AIMessage
 
 from src.eval.judge import judge_answer
-from src.eval.models import EvalCase, EvalResult, JudgeScore, ToolScore
+from src.eval.models import EvalCase, EvalResult, JudgeScore, MemorySeed, ToolScore
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,14 @@ async def _with_progress[T](label: str, coro: Coroutine[Any, Any, T]) -> T:
 
 _MAX_RETRIES = 3
 _RETRY_BACKOFF = [30, 60, 120]  # seconds to wait before each retry
+
+# Use a different model for the judge to avoid self-evaluation bias.
+# The judge task (structured rubric assessment) is simpler than the agent task,
+# so a smaller/cheaper model works well.
+_JUDGE_MODELS: dict[str, str] = {
+    "openai": "gpt-4o-mini",
+    "anthropic": "claude-haiku-4-5-20251001",
+}
 
 
 def _is_rate_limit_error(exc: BaseException) -> bool:
@@ -86,6 +98,8 @@ _SETTINGS_PATCH_SITES = [
     "src.agent.agent.get_settings",
     "src.agent.retrieval.embeddings.get_settings",
     "src.api.main.get_settings",
+    "src.memory.store.get_settings",
+    "src.memory.baselines.get_settings",
 ]
 
 # Service name → settings attribute that controls conditional tool registration
@@ -140,6 +154,7 @@ def _build_fake_settings(
         "truenas_api_key": "",
         "truenas_verify_ssl": False,
         "truenas_ca_cert": "",
+        "memory_db_path": "",
     }
 
     # Enable services that the case needs
@@ -162,6 +177,100 @@ def _build_fake_settings(
             attrs["loki_url"] = "http://loki.test:3100"
 
     return type("FakeSettings", (), attrs)()
+
+
+def _seed_memory_db(db_path: str, seed: MemorySeed) -> None:
+    """Create the memory DB schema and seed it with test data."""
+    from src.memory.store import get_connection, init_schema, save_baselines, save_incident, save_report
+
+    conn = get_connection(db_path)
+    try:
+        init_schema(conn)
+        now = datetime.now(UTC).isoformat()
+
+        for baseline in seed.baselines:
+            save_baselines(
+                conn,
+                [
+                    {
+                        "id": 0,
+                        "metric_name": baseline.metric_name,
+                        "labels": baseline.labels,
+                        "avg_value": baseline.avg_value,
+                        "p95_value": baseline.p95_value,
+                        "min_value": baseline.min_value,
+                        "max_value": baseline.max_value,
+                        "sample_count": baseline.sample_count,
+                        "window_days": baseline.window_days,
+                        "computed_at": now,
+                    }
+                ],
+            )
+
+        for incident in seed.incidents:
+            save_incident(
+                conn,
+                title=incident.title,
+                description=incident.description,
+                alert_name=incident.alert_name,
+                root_cause=incident.root_cause,
+                resolution=incident.resolution,
+                severity=incident.severity,
+                services=incident.services,
+            )
+
+        for report in seed.reports:
+            save_report(
+                conn,
+                generated_at=now,
+                lookback_days=report.lookback_days,
+                report_markdown=report.report_markdown,
+                report_data=report.report_data,
+                active_alerts=report.active_alerts,
+                slo_failures=report.slo_failures,
+                total_log_errors=report.total_log_errors,
+                estimated_cost=report.estimated_cost,
+            )
+    finally:
+        conn.close()
+
+
+def _summarize_available_data(case: EvalCase) -> str:
+    """Build a concise summary of mock data available to the agent for judge context."""
+    parts: list[str] = []
+
+    for mock in case.mocks:
+        body = mock.body
+        if isinstance(body, str):
+            parts.append(f"- {mock.method} {mock.url}: {body[:200]}")
+        else:
+            import json
+
+            body_str = json.dumps(body, indent=None, default=str)
+            if len(body_str) > 500:
+                body_str = body_str[:500] + "..."
+            parts.append(f"- {mock.method} {mock.url}: {body_str}")
+
+    if case.memory_seed:
+        seed = case.memory_seed
+        if seed.baselines:
+            for b in seed.baselines:
+                parts.append(
+                    f"- Baseline: {b.metric_name} labels={b.labels} "
+                    f"avg={b.avg_value} p95={b.p95_value} min={b.min_value} max={b.max_value}"
+                )
+        if seed.incidents:
+            for inc in seed.incidents:
+                parts.append(
+                    f"- Incident: alert={inc.alert_name} title={inc.title!r} "
+                    f"root_cause={inc.root_cause!r} resolution={inc.resolution!r}"
+                )
+        if seed.reports:
+            for rpt in seed.reports:
+                preview = rpt.report_markdown[:300].replace("\n", " ")
+                parts.append(f"- Archived report: {preview}...")
+
+    return "\n".join(parts) if parts else "No mock data configured for this case."
 
 
 def _extract_tool_calls(messages: list[Any]) -> list[str]:
@@ -233,6 +342,15 @@ async def run_eval_case(
         anthropic_model=anthropic_model,
     )
 
+    # Set up memory DB if the case provides seed data
+    memory_db_fd: int | None = None
+    memory_db_path: str | None = None
+    if case.memory_seed is not None:
+        memory_db_fd, memory_db_path = tempfile.mkstemp(suffix=".db", prefix=f"eval-memory-{case.id}-")
+        os.close(memory_db_fd)
+        _seed_memory_db(memory_db_path, case.memory_seed)
+        fake_settings.memory_db_path = memory_db_path  # type: ignore[attr-defined]
+
     # Stack all settings patches
     patches = [patch(site, return_value=fake_settings) for site in _SETTINGS_PATCH_SITES]
 
@@ -299,11 +417,16 @@ async def run_eval_case(
         runbook_patch.stop()
         for p in reversed(patches):
             p.stop()
+        # Clean up temp memory DB
+        if memory_db_path is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(memory_db_path)
 
     # LLM-as-judge scoring
     judge_score: JudgeScore
+    available_data = _summarize_available_data(case)
     try:
-        judge_model = anthropic_model if llm_provider == "anthropic" else openai_model
+        judge_model = _JUDGE_MODELS.get(llm_provider, "gpt-4o-mini")
         judge_score = await _with_progress(
             "Judge scoring",
             judge_answer(
@@ -315,6 +438,7 @@ async def run_eval_case(
                 base_url=openai_base_url or None,
                 llm_provider=llm_provider,
                 anthropic_api_key=anthropic_api_key,
+                available_data=available_data,
             ),
         )
     except Exception as exc:

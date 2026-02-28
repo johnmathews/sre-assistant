@@ -10,30 +10,32 @@ expected_tools:
   must_not_call: []
 
 mocks:
-  - url: "https://proxmox.test:8006/api2/json/cluster/resources"
+  - url: "https://proxmox.test:8006/api2/json/nodes/proxmox/qemu"
+    method: GET
+    status: 200
+    body:
+      data:
+        - vmid: 105
+          name: "jellyfin"
+          status: "running"
+          cpu: 0.42
+          maxcpu: 8
+          mem: 8589934592
+          maxmem: 17179869184
+  - url: "https://proxmox.test:8006/api2/json/nodes/proxmox/lxc"
     method: GET
     status: 200
     body:
       data:
         - vmid: 100
           name: "infra"
-          type: "lxc"
           status: "running"
           cpu: 0.05
           maxcpu: 4
           mem: 1073741824
           maxmem: 4294967296
-        - vmid: 105
-          name: "jellyfin"
-          type: "qemu"
-          status: "running"
-          cpu: 0.42
-          maxcpu: 8
-          mem: 8589934592
-          maxmem: 17179869184
         - vmid: 110
           name: "media"
-          type: "lxc"
           status: "running"
           cpu: 0.12
           maxcpu: 4
