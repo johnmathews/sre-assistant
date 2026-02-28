@@ -57,7 +57,7 @@ The LangChain agent decides which approach to use based on the question.
 ```
 HomeLab SRE Assistant
   |
-  +-- OpenAI API (LLM inference)
+  +-- LLM API (OpenAI or Anthropic, selected via LLM_PROVIDER)
   |
   +-- Prometheus (metrics, scraping pve_exporter, node_exporter, cadvisor, etc.)
   |
@@ -74,8 +74,8 @@ HomeLab SRE Assistant
   +-- Chroma vector store (local, on-disk)
 ```
 
-Required: OpenAI API, Prometheus, Grafana. Optional: TrueNAS, Loki, Proxmox VE, PBS (tools are conditionally registered
-based on config). Local: Chroma vector store (rebuilt via `make ingest`).
+Required: LLM API (OpenAI or Anthropic), Prometheus, Grafana. Optional: TrueNAS, Loki, Proxmox VE, PBS (tools are
+conditionally registered based on config). Local: Chroma vector store (rebuilt via `make ingest`).
 
 ## Request Lifecycle
 
@@ -412,6 +412,7 @@ All secrets are managed via Ansible Vault, consistent with the rest of the homel
 | Secret                          | Source        | Injected Via    |
 | ------------------------------- | ------------- | --------------- |
 | `OPENAI_API_KEY`                | Ansible Vault | `.env` template |
+| `ANTHROPIC_API_KEY`             | Ansible Vault | `.env` template |
 | `GRAFANA_SERVICE_ACCOUNT_TOKEN` | Ansible Vault | `.env` template |
 | `PROXMOX_API_TOKEN`             | Ansible Vault | `.env` template |
 | `PBS_API_TOKEN`                 | Ansible Vault | `.env` template |

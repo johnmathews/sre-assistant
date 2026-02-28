@@ -120,13 +120,28 @@ Conditional (config-dependent):
 ```
 get_settings() -> Settings()  [cached via @lru_cache]
   1. Reads .env file
-  2. Validates required fields (openai_api_key, prometheus_url, grafana_url, grafana_service_account_token)
-  3. Optional fields default to empty string (truenas_url, loki_url, proxmox_url, pbs_url, smtp_host, etc.)
-  4. Returns singleton Settings instance
+  2. Validates required fields (prometheus_url, grafana_url, grafana_service_account_token)
+  3. Validates provider-specific keys (openai_api_key if LLM_PROVIDER=openai, anthropic_api_key if anthropic)
+  4. Optional fields default to empty string (truenas_url, loki_url, proxmox_url, pbs_url, smtp_host, etc.)
+  5. Returns singleton Settings instance
 ```
 
 Each tool module imports `get_settings` independently. In tests, `conftest.py::mock_settings` patches `get_settings` at
 every import site (16 patch sites as of Phase 7).
+
+### Provider Selection
+
+`LLM_PROVIDER` selects which LLM backend to use:
+
+```
+LLM_PROVIDER=openai     → OPENAI_API_KEY required, uses ChatOpenAI
+LLM_PROVIDER=anthropic  → ANTHROPIC_API_KEY required, uses ChatAnthropic
+```
+
+The factory function `src/agent/llm.py::create_llm()` centralises LLM instantiation. All three call sites — `build_agent()`,
+`_generate_narrative()` (report generator), and `judge_answer()` (eval judge) — use this factory instead of constructing
+`ChatOpenAI` directly. Both providers share the same `MetricsCallbackHandler` — Claude models populate `llm_output` with
+`token_usage` and `model_name` in the same format as OpenAI, so cost tracking works automatically.
 
 ## Metrics Flow
 
@@ -233,8 +248,9 @@ The handler matches `model_name` from `llm_output` against a prefix-based pricin
 | `claude-haiku-4`  | $0.80                  | $4.00                      |
 
 Unknown models fall back to `gpt-4o` pricing (the conservative default). Claude pricing is informational — when using an
-Anthropic Max subscription via `claude-max-api-proxy`, the actual cost is the flat subscription rate. The total cost counter is monotonically
-increasing — Prometheus `rate()` computes cost per time window for the dashboard.
+Anthropic Max subscription (direct API via `claude setup-token` or via `claude-max-api-proxy`), the actual cost is the
+flat subscription rate. The total cost counter is monotonically increasing — Prometheus `rate()` computes cost per time
+window for the dashboard.
 
 ### Exposition
 
@@ -316,15 +332,15 @@ infrastructure. It runs separately from `make test` because it costs tokens.
 scripts/run_eval.py
   -> load_eval_cases(case_ids)           # YAML files from src/eval/cases/
   -> for each case:
-       run_eval_case(case, api_key, model)
-         1. Build FakeSettings (real OpenAI key + fake infra URLs)
+       run_eval_case(case, api_key, model, ...)
+         1. Build FakeSettings (real LLM key + fake infra URLs)
          2. Patch get_settings at all 11 import sites
          3. Disable runbook_search (no vector store needed)
          4. Set up respx mocks from case.mocks
          5. build_agent() + agent.ainvoke() with full message history
          6. Extract tool names from AIMessage.tool_calls
          7. Score tools: missing = must_call - called, forbidden = must_not_call ∩ called
-         8. Judge answer: send (question, answer, rubric) to gpt-4o-mini
+         8. Judge answer: send (question, answer, rubric) to grading LLM
          9. Return EvalResult(tool_score, judge_score, answer)
        print_case_result(result)
   -> print_summary(results)

@@ -44,16 +44,22 @@ def _build_fake_settings(
     openai_api_key: str,
     openai_model: str,
     openai_base_url: str = "",
+    llm_provider: str = "openai",
+    anthropic_api_key: str = "",
+    anthropic_model: str = "claude-sonnet-4-20250514",
 ) -> object:
-    """Build a FakeSettings object with real OpenAI creds and fake infra URLs.
+    """Build a FakeSettings object with real LLM creds and fake infra URLs.
 
     Only services listed in case.required_services get non-empty URLs;
     the rest get empty strings so their tools are not registered.
     """
     attrs: dict[str, Any] = {
+        "llm_provider": llm_provider,
         "openai_api_key": openai_api_key,
         "openai_model": openai_model,
         "openai_base_url": openai_base_url,
+        "anthropic_api_key": anthropic_api_key,
+        "anthropic_model": anthropic_model,
         "extra_docs_dirs": "",
         # Always-required services
         "prometheus_url": "http://prometheus.test:9090",
@@ -141,6 +147,9 @@ async def run_eval_case(
     openai_api_key: str,
     openai_model: str,
     openai_base_url: str = "",
+    llm_provider: str = "openai",
+    anthropic_api_key: str = "",
+    anthropic_model: str = "claude-sonnet-4-20250514",
 ) -> EvalResult:
     """Run a single eval case: mock HTTP, invoke agent, score results.
 
@@ -149,11 +158,22 @@ async def run_eval_case(
         openai_api_key: Real OpenAI API key (from .env).
         openai_model: OpenAI model name for the agent.
         openai_base_url: Optional OpenAI-compatible proxy URL.
+        llm_provider: "openai" or "anthropic".
+        anthropic_api_key: Anthropic API key (when llm_provider=anthropic).
+        anthropic_model: Anthropic model name (when llm_provider=anthropic).
 
     Returns:
         EvalResult with tool score, judge score, and agent answer.
     """
-    fake_settings = _build_fake_settings(case, openai_api_key, openai_model, openai_base_url)
+    fake_settings = _build_fake_settings(
+        case,
+        openai_api_key,
+        openai_model,
+        openai_base_url,
+        llm_provider=llm_provider,
+        anthropic_api_key=anthropic_api_key,
+        anthropic_model=anthropic_model,
+    )
 
     # Stack all settings patches
     patches = [patch(site, return_value=fake_settings) for site in _SETTINGS_PATCH_SITES]
@@ -184,8 +204,9 @@ async def run_eval_case(
                         json=mock_def.body,  # pyright: ignore[reportArgumentType]
                     )
                 method_fn(url=mock_def.url).mock(return_value=response)
-            # Let real OpenAI traffic pass through (evals use a real LLM)
+            # Let real LLM traffic pass through (evals use a real LLM)
             router.route(host="api.openai.com").pass_through()
+            router.route(host="api.anthropic.com").pass_through()
             if openai_base_url:
                 from urllib.parse import urlparse
 
@@ -223,6 +244,8 @@ async def run_eval_case(
             rubric=case.rubric,
             openai_api_key=openai_api_key,
             base_url=openai_base_url or None,
+            llm_provider=llm_provider,
+            anthropic_api_key=anthropic_api_key,
         )
     except Exception as exc:
         logger.warning("Judge scoring failed for %s: %s", case.id, exc)

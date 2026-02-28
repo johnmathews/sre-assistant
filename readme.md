@@ -49,7 +49,8 @@ make dev
 
 # Copy and fill in your API keys
 cp .env.example .env
-# Edit .env — required: OPENAI_API_KEY, PROMETHEUS_URL, GRAFANA_URL, GRAFANA_SERVICE_ACCOUNT_TOKEN
+# Edit .env — required: PROMETHEUS_URL, GRAFANA_URL, GRAFANA_SERVICE_ACCOUNT_TOKEN
+# Plus one of: OPENAI_API_KEY (default) or ANTHROPIC_API_KEY (set LLM_PROVIDER=anthropic)
 
 # Build the runbook vector store (required before first use)
 make ingest
@@ -173,7 +174,9 @@ Create a `.env` file on the deployment host. See `.env.example` for the full lis
 
 | Variable                         | Example                                | Notes                                      |
 | -------------------------------- | -------------------------------------- | ------------------------------------------ |
-| `OPENAI_API_KEY`                 | `sk-proj-...`                          | OpenAI API key                             |
+| `LLM_PROVIDER`                   | `openai` or `anthropic`               | Default: `openai`                          |
+| `OPENAI_API_KEY`                 | `sk-proj-...`                          | Required when `LLM_PROVIDER=openai`        |
+| `ANTHROPIC_API_KEY`              | `sk-ant-oat01-...`                     | Required when `LLM_PROVIDER=anthropic`     |
 | `PROMETHEUS_URL`                 | `http://192.168.2.50:9090`             | Must be reachable from inside the container |
 | `GRAFANA_URL`                    | `http://192.168.2.50:3000`             | Must be reachable from inside the container |
 | `GRAFANA_SERVICE_ACCOUNT_TOKEN`  | `glsa_...`                             | Grafana service account token              |
@@ -339,7 +342,7 @@ Live Sources (LangChain Tools)       Knowledge Base (RAG)
         LangChain Agent
         (routes between tools and retrieval)
                ↓
-           LLM (OpenAI API)
+      LLM (OpenAI or Anthropic API)
                ↓
          FastAPI Backend
                ↓
@@ -466,7 +469,7 @@ inside the container. In Docker, `CONVERSATION_HISTORY_HOST_DIR` controls the ho
 | Component       | Technology                   |
 | --------------- | ---------------------------- |
 | Agent framework | LangChain (Python)           |
-| LLM             | OpenAI API (GPT)             |
+| LLM             | OpenAI API or Anthropic API  |
 | Vector store    | Chroma                       |
 | Backend         | FastAPI                      |
 | Frontend        | Streamlit + CLI              |
@@ -720,6 +723,7 @@ homelab-sre-assistant/
 │   ├── cli.py                    # Interactive CLI REPL
 │   ├── agent/
 │   │   ├── agent.py              # LangChain agent setup
+│   │   ├── llm.py                # LLM factory (OpenAI / Anthropic provider selection)
 │   │   ├── history.py            # Conversation history persistence to JSON
 │   │   ├── tools/
 │   │   │   ├── prometheus.py     # Prometheus query tools (3)
@@ -760,7 +764,7 @@ homelab-sre-assistant/
 │   └── install-hooks.sh          # Install git pre-push hook
 ├── dashboards/
 │   └── sre-assistant-sli.json    # Grafana SLI/SLO dashboard
-├── tests/                        # Unit + integration tests (578 passing)
+├── tests/                        # Unit + integration tests (646 passing)
 ├── docs/                         # Design documentation
 │   ├── architecture.md           # System overview, data flow, deployment
 │   ├── tool-reference.md         # All tools with inputs and examples

@@ -10,11 +10,10 @@ from langchain.agents import create_agent  # pyright: ignore[reportUnknownVariab
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
-from pydantic import SecretStr
 
 from src.agent.history import save_conversation
+from src.agent.llm import create_llm
 from src.agent.tools.grafana_alerts import grafana_get_alert_rules, grafana_get_alerts
 from src.agent.tools.loki import (
     loki_correlate_changes,
@@ -230,23 +229,20 @@ def build_agent(
     """Build and return the SRE assistant agent.
 
     Args:
-        model_name: OpenAI model to use. Defaults to OPENAI_MODEL from config.
+        model_name: LLM model to use. Defaults to the configured provider's model.
         temperature: LLM temperature (0.0 for deterministic tool-calling).
 
     Returns:
         A compiled LangGraph agent with tool-calling and conversation memory.
     """
     settings = get_settings()
-    resolved_model = model_name or settings.openai_model
 
-    llm = ChatOpenAI(
-        model=resolved_model,
-        temperature=temperature,
-        api_key=SecretStr(settings.openai_api_key),
-        base_url=settings.openai_base_url or None,
-    )
+    llm = create_llm(settings, temperature=temperature, model_override=model_name)
 
     tools = _get_tools()
+    resolved_model = model_name or (
+        settings.anthropic_model if settings.llm_provider == "anthropic" else settings.openai_model
+    )
     logger.info("Building agent with model=%s, %d tools: %s", resolved_model, len(tools), [t.name for t in tools])
 
     now = datetime.now(UTC)

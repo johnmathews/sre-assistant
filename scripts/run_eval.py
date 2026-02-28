@@ -14,24 +14,39 @@ from src.eval.report import print_case_result, print_summary
 from src.eval.runner import run_eval_case
 
 
-def _get_openai_config() -> tuple[str, str, str]:
-    """Load OpenAI config from environment / .env."""
+def _get_llm_config() -> dict[str, str]:
+    """Load LLM config from environment / .env."""
     from src.config import get_settings
 
     settings = get_settings()
-    return settings.openai_api_key, settings.openai_model, settings.openai_base_url
+    return {
+        "llm_provider": settings.llm_provider,
+        "openai_api_key": settings.openai_api_key,
+        "openai_model": settings.openai_model,
+        "openai_base_url": settings.openai_base_url,
+        "anthropic_api_key": settings.anthropic_api_key,
+        "anthropic_model": settings.anthropic_model,
+    }
 
 
 async def _run_all(case_ids: list[str] | None) -> bool:
     """Run eval cases and return True if all passed."""
-    openai_api_key, openai_model, openai_base_url = _get_openai_config()
+    config = _get_llm_config()
     cases = load_eval_cases(case_ids)
 
     print(f"Running {len(cases)} eval case(s)...", file=sys.stderr)
 
     results = []
     for case in cases:
-        result = await run_eval_case(case, openai_api_key, openai_model, openai_base_url)
+        result = await run_eval_case(
+            case,
+            openai_api_key=config["openai_api_key"],
+            openai_model=config["openai_model"],
+            openai_base_url=config["openai_base_url"],
+            llm_provider=config["llm_provider"],
+            anthropic_api_key=config["anthropic_api_key"],
+            anthropic_model=config["anthropic_model"],
+        )
         print_case_result(result)
         results.append(result)
 

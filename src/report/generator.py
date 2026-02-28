@@ -14,9 +14,8 @@ from datetime import UTC, datetime
 from typing import NotRequired, TypedDict
 
 import httpx
-from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
 
+from src.agent.llm import create_llm
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -639,12 +638,7 @@ async def _generate_narrative(
     """Generate a 2-3 paragraph executive summary via a single LLM call."""
     settings = get_settings()
     try:
-        llm = ChatOpenAI(
-            model=settings.openai_model,
-            api_key=SecretStr(settings.openai_api_key),
-            temperature=0.3,
-            base_url=settings.openai_base_url or None,
-        )
+        llm = create_llm(settings, temperature=0.3)
         prompt = (
             "You are an SRE assistant writing a weekly reliability report summary. "
             "Given the following infrastructure data as JSON, write 3-5 concise bullet "

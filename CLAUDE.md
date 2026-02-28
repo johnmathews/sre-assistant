@@ -25,7 +25,7 @@ The LangChain agent decides which approach to use based on the question.
 ## Tech Stack
 
 - **Agent framework:** LangChain (Python)
-- **LLM:** OpenAI API (GPT)
+- **LLM:** OpenAI API or Anthropic API (selected via `LLM_PROVIDER`)
 - **Vector store:** Chroma or FAISS
 - **Backend:** FastAPI (`/ask` endpoint)
 - **Frontend:** Streamlit (MVP) or CLI

@@ -1,15 +1,24 @@
 from functools import lru_cache
 from typing import ClassVar
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables / .env file."""
 
-    openai_api_key: str
+    # LLM provider selection: "openai" or "anthropic"
+    llm_provider: str = "openai"
+
+    openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_base_url: str = ""  # Optional OpenAI-compatible proxy URL
+
+    # Anthropic API (optional — only needed when LLM_PROVIDER=anthropic)
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-20250514"
+
     prometheus_url: str
     grafana_url: str
     grafana_service_account_token: str
@@ -58,6 +67,15 @@ class Settings(BaseSettings):
     pbs_ca_cert: str = ""
     pbs_node: str = "localhost"
     pbs_default_datastore: str = ""
+
+    @model_validator(mode="after")
+    def _validate_provider_keys(self) -> "Settings":
+        """Require the API key for the selected LLM provider."""
+        if self.llm_provider == "anthropic" and not self.anthropic_api_key:
+            raise ValueError("ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic")
+        if self.llm_provider == "openai" and not self.openai_api_key:
+            raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER=openai")
+        return self
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"

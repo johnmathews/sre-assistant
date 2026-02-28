@@ -3,6 +3,8 @@
 import json
 import logging
 
+from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
@@ -41,9 +43,11 @@ async def judge_answer(
     question: str,
     answer: str,
     rubric: str,
-    openai_api_key: str,
+    openai_api_key: str = "",
     model: str = "gpt-4o-mini",
     base_url: str | None = None,
+    llm_provider: str = "openai",
+    anthropic_api_key: str = "",
 ) -> JudgeScore:
     """Score an agent answer against a rubric using LLM-as-judge.
 
@@ -54,16 +58,27 @@ async def judge_answer(
         openai_api_key: OpenAI API key for the grading LLM.
         model: Model to use for grading (default: gpt-4o-mini).
         base_url: Optional OpenAI-compatible proxy URL.
+        llm_provider: "openai" or "anthropic".
+        anthropic_api_key: Anthropic API key (required when llm_provider=anthropic).
 
     Returns:
         JudgeScore with passed/failed and explanation.
     """
-    llm = ChatOpenAI(
-        model=model,
-        temperature=0.0,
-        api_key=SecretStr(openai_api_key),
-        base_url=base_url,
-    )
+    llm: BaseChatModel
+    if llm_provider == "anthropic":
+        llm = ChatAnthropic(  # type: ignore[call-arg]  # pyright: ignore[reportCallIssue]
+            model=model,
+            temperature=0.0,
+            api_key=SecretStr(anthropic_api_key),
+            max_tokens=1024,
+        )
+    else:
+        llm = ChatOpenAI(
+            model=model,
+            temperature=0.0,
+            api_key=SecretStr(openai_api_key),
+            base_url=base_url,
+        )
 
     prompt = _JUDGE_PROMPT.format(question=question, answer=answer, rubric=rubric)
     response = await llm.ainvoke(prompt)

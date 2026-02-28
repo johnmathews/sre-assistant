@@ -6,8 +6,9 @@
 
 | Package             | Purpose                                                                                     |
 | ------------------- | ------------------------------------------------------------------------------------------- |
-| `langchain`         | Agent framework — tool orchestration, prompt management, agent graph                        |
-| `langchain-openai`  | OpenAI LLM integration for LangChain                                                        |
+| `langchain`           | Agent framework — tool orchestration, prompt management, agent graph                        |
+| `langchain-anthropic` | Anthropic LLM integration for LangChain (ChatAnthropic)                                     |
+| `langchain-openai`    | OpenAI LLM integration for LangChain (ChatOpenAI)                                           |
 | `langchain-chroma`  | Chroma vector store integration for RAG retrieval                                           |
 | `fastapi`           | HTTP backend — `/ask` and `/health` endpoints                                               |
 | `uvicorn`           | ASGI server for FastAPI                                                                     |
@@ -31,9 +32,15 @@
 | `respx`          | HTTP mocking for httpx (integration tests, eval framework) |
 | `types-PyYAML`   | Type stubs for PyYAML                                      |
 
-## LLM Model Selection
+## LLM Provider & Model Selection
 
-The model is configurable via `OPENAI_MODEL` in `.env` (default: `gpt-4o-mini`).
+The LLM provider is selected via `LLM_PROVIDER` in `.env` (`openai` or `anthropic`, default: `openai`). The model is
+configured per-provider via `OPENAI_MODEL` or `ANTHROPIC_MODEL`.
+
+The LLM factory in `src/agent/llm.py` centralises provider selection — all LLM instantiation sites (agent, report
+generator, eval judge) call `create_llm()` instead of constructing provider classes directly.
+
+### OpenAI Models
 
 | Model          | Speed             | Tool Use Quality                           | Cost (per 1M tokens in/out) | Best For                              |
 | -------------- | ----------------- | ------------------------------------------ | --------------------------- | ------------------------------------- |
@@ -42,24 +49,39 @@ The model is configurable via `OPENAI_MODEL` in `.env` (default: `gpt-4o-mini`).
 | `gpt-4o`       | Moderate (~5-10s) | Very good — better PromQL construction     | ~$2.50 / $10.00             | Complex queries, multi-step reasoning |
 | `gpt-4.1`      | Moderate (~5-10s) | Excellent — best at multi-step tool use    | ~$2.00 / $8.00              | Debugging, incident investigation     |
 
-**Tradeoffs:**
+### Anthropic Models
 
-- `gpt-4o-mini` is 15-60x cheaper than the full models and handles straightforward questions well (alert summaries,
+| Model                          | Speed             | Tool Use Quality                    | Cost (per 1M tokens in/out) | Best For                                      |
+| ------------------------------ | ----------------- | ----------------------------------- | --------------------------- | --------------------------------------------- |
+| `claude-sonnet-4-20250514`     | Moderate (~3-8s)  | Excellent — strong tool use + reasoning | ~$3.00 / $15.00             | Day-to-day use (default for Anthropic)        |
+| `claude-haiku-4-20251001`      | Fast (~1-3s)      | Good — fast, cost-effective         | ~$0.80 / $4.00              | High-volume, cost-sensitive                   |
+| `claude-opus-4-20250514`       | Slower (~5-15s)   | Excellent — best reasoning          | ~$15.00 / $75.00            | Complex debugging, deep investigation         |
+
+With a Claude Max/Pro subscription, Anthropic API access is included (generate a token via `claude setup-token`). In
+this case the per-token costs above don't apply — the subscription covers usage at a flat rate.
+
+### Tradeoffs
+
+- `gpt-4o-mini` is the cheapest option and handles straightforward questions well (alert summaries,
   listing VMs, runbook lookups). It struggles with complex PromQL construction and multi-step reasoning.
-- `gpt-4o` / `gpt-4.1` produce better PromQL (e.g., correctly using `topk()`, `avg_over_time()`, `by (label)`) and handle
-  follow-up questions more reliably, but each query costs significantly more.
+- `gpt-4o` / `gpt-4.1` / `claude-sonnet-4` produce better PromQL (e.g., correctly using `topk()`, `avg_over_time()`,
+  `by (label)`) and handle follow-up questions more reliably, but each query costs significantly more.
 - For development and testing, `gpt-4o-mini` is recommended. Switch to a larger model for demos or when query quality
   matters more than cost.
+- For Claude Max subscribers, `claude-sonnet-4` is effectively free beyond the subscription cost.
 
 ## External Services
 
 ### Required
 
-| Service        | What it provides                                   | Auth                                                    |
-| -------------- | -------------------------------------------------- | ------------------------------------------------------- |
-| **OpenAI API** | LLM inference (configurable via `OPENAI_MODEL`)    | API key (`OPENAI_API_KEY`)                              |
-| **Prometheus** | Metrics storage and PromQL query engine            | None (HTTP)                                             |
-| **Grafana**    | Unified alerting (alert states + rule definitions) | Service account token (`GRAFANA_SERVICE_ACCOUNT_TOKEN`) |
+| Service            | What it provides                                   | Auth                                                    |
+| ------------------ | -------------------------------------------------- | ------------------------------------------------------- |
+| **OpenAI API**     | LLM inference (when `LLM_PROVIDER=openai`)         | API key (`OPENAI_API_KEY`)                              |
+| **Anthropic API**  | LLM inference (when `LLM_PROVIDER=anthropic`)      | API key (`ANTHROPIC_API_KEY`)                           |
+| **Prometheus**     | Metrics storage and PromQL query engine             | None (HTTP)                                             |
+| **Grafana**        | Unified alerting (alert states + rule definitions)  | Service account token (`GRAFANA_SERVICE_ACCOUNT_TOKEN`) |
+
+Only one LLM provider is required — set `LLM_PROVIDER` to select which one.
 
 ### Optional
 

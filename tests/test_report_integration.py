@@ -378,7 +378,7 @@ class TestGenerateReport:
         )
 
         # Mock LLM
-        with patch("src.report.generator.ChatOpenAI") as mock_llm_cls:
+        with patch("src.agent.llm.ChatOpenAI") as mock_llm_cls:
             mock_llm = MagicMock()
             mock_response = MagicMock()
             mock_response.content = "Test narrative summary."
@@ -405,7 +405,7 @@ class TestGenerateReport:
         respx.get("http://loki.test:3100/loki/api/v1/query").mock(return_value=httpx.Response(503))
         respx.get("https://pbs.test:8007/api2/json/status/datastore-usage").mock(return_value=httpx.Response(503))
 
-        with patch("src.report.generator.ChatOpenAI") as mock_llm_cls:
+        with patch("src.agent.llm.ChatOpenAI") as mock_llm_cls:
             mock_llm = MagicMock()
             mock_response = MagicMock()
             mock_response.content = "All data sources were unavailable."
@@ -511,7 +511,7 @@ class TestReportEndpoint:
         respx.get("http://grafana.test:3000/api/health").mock(return_value=httpx.Response(200))
 
         with (
-            patch("src.report.generator.ChatOpenAI") as mock_llm_cls,
+            patch("src.agent.llm.ChatOpenAI") as mock_llm_cls,
             patch("src.api.main.build_agent") as mock_build,
         ):
             mock_build.return_value = MagicMock()
