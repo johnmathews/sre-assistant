@@ -13,7 +13,7 @@ from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import MemorySaver
 
 from src.agent.history import save_conversation
-from src.agent.llm import create_llm
+from src.agent.llm import _is_oauth_token, create_llm
 from src.agent.tools.grafana_alerts import grafana_get_alert_rules, grafana_get_alerts
 from src.agent.tools.loki import (
     loki_correlate_changes,
@@ -251,6 +251,10 @@ def build_agent(
         .replace("{current_date}", now.strftime("%Y-%m-%d"))
         .replace("{retention_cutoff}", (now - timedelta(days=90)).strftime("%Y-%m-%d"))
     )
+
+    # OAuth tokens require the system prompt to identify as Claude Code.
+    if settings.llm_provider == "anthropic" and _is_oauth_token(settings.anthropic_api_key):
+        system_prompt = "You are Claude Code, Anthropic's official CLI for Claude.\n\n" + system_prompt
 
     # Inject dynamic context from memory store (best-effort, never fails build)
     system_prompt += _get_memory_context()

@@ -9,34 +9,71 @@ from pydantic import SecretStr
 
 from src.config import Settings
 
-# OAuth tokens from `claude setup-token` (Claude Max/Pro subscriptions) use
-# Authorization: Bearer header, not x-api-key.  ChatAnthropic doesn't have an
-# auth_token parameter, so we detect the token format and pass it via
-# default_headers instead.
-_OAUTH_TOKEN_PREFIX = "sk-ant-oat01-"
+# OAuth tokens from `claude setup-token` (Claude Max/Pro subscriptions)
+# require Bearer auth plus specific beta/UA headers that identify the
+# request as coming from Claude Code.
+_OAUTH_TOKEN_PREFIX = "sk-ant-oat"
+
+# Headers required by the Anthropic API for OAuth token authentication.
+_OAUTH_BETA = "claude-code-20250219,oauth-2025-04-20"
+_OAUTH_USER_AGENT = "claude-cli/2.1.62"
 
 
-def _build_anthropic_kwargs(
+def _is_oauth_token(api_key: str) -> bool:
+    """Check if an API key is an Anthropic OAuth token."""
+    return api_key.startswith(_OAUTH_TOKEN_PREFIX)
+
+
+def create_anthropic_chat(
     api_key: str,
     model: str,
     temperature: float,
     max_tokens: int,
-) -> dict[str, Any]:
-    """Build kwargs for ChatAnthropic, handling OAuth vs regular API keys."""
+) -> ChatAnthropic:
+    """Create a ChatAnthropic instance, handling OAuth vs regular API keys.
+
+    OAuth tokens (sk-ant-oat*) require:
+      - ``Authorization: Bearer`` instead of ``x-api-key``
+      - ``anthropic-beta`` header with ``claude-code-20250219,oauth-2025-04-20``
+      - ``user-agent`` matching Claude Code (``claude-cli/{version}``)
+      - ``x-app: cli``
+
+    ChatAnthropic doesn't expose the SDK's ``auth_token`` param, so we set
+    the required headers via ``default_headers`` and suppress the placeholder
+    ``x-api-key`` header with the SDK's ``Omit`` sentinel.
+    """
     kwargs: dict[str, Any] = {
         "model": model,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
-    if api_key.startswith(_OAUTH_TOKEN_PREFIX):
-        # OAuth token — send as Authorization: Bearer, not x-api-key.
-        # ChatAnthropic requires api_key, so pass a placeholder that won't be
-        # used because the Bearer header takes precedence in the Anthropic API.
+    is_oauth = _is_oauth_token(api_key)
+    if is_oauth:
         kwargs["api_key"] = SecretStr("placeholder-for-oauth")
-        kwargs["default_headers"] = {"Authorization": f"Bearer {api_key}"}
+        kwargs["default_headers"] = {
+            "Authorization": f"Bearer {api_key}",
+            "anthropic-beta": _OAUTH_BETA,
+            "user-agent": _OAUTH_USER_AGENT,
+            "x-app": "cli",
+        }
     else:
         kwargs["api_key"] = SecretStr(api_key)
-    return kwargs
+
+    llm = ChatAnthropic(**kwargs)  # pyright: ignore[reportCallIssue]
+
+    if is_oauth:
+        # Suppress the placeholder x-api-key header.  The SDK's
+        # default_headers property merges auth_headers (X-Api-Key from
+        # api_key) with _custom_headers (our default_headers).  Injecting
+        # Omit() into _custom_headers makes _merge_mappings strip the
+        # X-Api-Key entry so only the Authorization: Bearer header is sent.
+        from anthropic._types import Omit  # pyright: ignore[reportPrivateUsage]
+
+        omit: Any = Omit()
+        for client in (llm._client, llm._async_client):
+            client._custom_headers["X-Api-Key"] = omit  # type: ignore[index]  # pyright: ignore[reportPrivateUsage]
+
+    return llm
 
 
 def create_llm(
@@ -56,13 +93,12 @@ def create_llm(
     """
     if settings.llm_provider == "anthropic":
         model = model_override or settings.anthropic_model
-        kwargs = _build_anthropic_kwargs(
+        return create_anthropic_chat(
             api_key=settings.anthropic_api_key,
             model=model,
             temperature=temperature,
             max_tokens=4096,
         )
-        return ChatAnthropic(**kwargs)  # pyright: ignore[reportCallIssue]
 
     model = model_override or settings.openai_model
     return ChatOpenAI(

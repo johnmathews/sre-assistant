@@ -7,7 +7,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
-from src.agent.llm import _build_anthropic_kwargs
+from src.agent.llm import create_anthropic_chat
 from src.eval.models import JudgeScore
 
 logger = logging.getLogger(__name__)
@@ -66,15 +66,12 @@ async def judge_answer(
     """
     llm: BaseChatModel
     if llm_provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-
-        kwargs = _build_anthropic_kwargs(
+        llm = create_anthropic_chat(
             api_key=anthropic_api_key,
             model=model,
             temperature=0.0,
             max_tokens=1024,
         )
-        llm = ChatAnthropic(**kwargs)  # pyright: ignore[reportCallIssue]
     else:
         llm = ChatOpenAI(
             model=model,

@@ -189,30 +189,38 @@ class TestCreateLlmFactory:
         assert llm.model_name == "gpt-4o"
 
     def test_oauth_token_uses_bearer_header(self) -> None:
-        from src.agent.llm import _build_anthropic_kwargs
+        from anthropic._base_client import _merge_mappings
 
-        kwargs = _build_anthropic_kwargs(
+        from src.agent.llm import create_anthropic_chat
+
+        llm = create_anthropic_chat(
             api_key="sk-ant-oat01-test-oauth-token",
             model="claude-sonnet-4-20250514",
             temperature=0.0,
             max_tokens=4096,
         )
-        assert "default_headers" in kwargs
-        assert kwargs["default_headers"]["Authorization"] == "Bearer sk-ant-oat01-test-oauth-token"
-        # api_key should be a placeholder, not the real token
-        assert kwargs["api_key"].get_secret_value() != "sk-ant-oat01-test-oauth-token"
+        # Check headers on the underlying client
+        merged = _merge_mappings(llm._client.default_headers, {})
+        # Bearer auth
+        assert merged.get("Authorization") == "Bearer sk-ant-oat01-test-oauth-token"
+        # X-Api-Key should be omitted (stripped by _merge_mappings)
+        assert "X-Api-Key" not in merged
+        # OAuth beta and Claude Code identity headers
+        assert "oauth-2025-04-20" in merged.get("anthropic-beta", "")
+        assert "claude-code-20250219" in merged.get("anthropic-beta", "")
+        assert merged.get("user-agent") == "claude-cli/2.1.62"
+        assert merged.get("x-app") == "cli"
 
     def test_regular_api_key_uses_api_key_param(self) -> None:
-        from src.agent.llm import _build_anthropic_kwargs
+        from src.agent.llm import create_anthropic_chat
 
-        kwargs = _build_anthropic_kwargs(
+        llm = create_anthropic_chat(
             api_key="sk-ant-api03-regular-key",
             model="claude-sonnet-4-20250514",
             temperature=0.0,
             max_tokens=4096,
         )
-        assert "default_headers" not in kwargs
-        assert kwargs["api_key"].get_secret_value() == "sk-ant-api03-regular-key"
+        assert llm._client.api_key == "sk-ant-api03-regular-key"
 
     def test_model_override_used_for_anthropic(self) -> None:
         from src.agent.llm import create_llm
@@ -435,10 +443,10 @@ class TestJudgeAnthropicProvider:
 
     @pytest.mark.asyncio
     async def test_anthropic_provider_creates_chat_anthropic(self) -> None:
-        with patch("langchain_anthropic.ChatAnthropic") as mock_llm_cls:
+        with patch("src.eval.judge.create_anthropic_chat") as mock_create:
             mock_llm = MagicMock()
             mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content='{"passed": true, "explanation": "ok"}'))
-            mock_llm_cls.return_value = mock_llm
+            mock_create.return_value = mock_llm
 
             from src.eval.judge import judge_answer
 
@@ -450,8 +458,8 @@ class TestJudgeAnthropicProvider:
                 anthropic_api_key="sk-ant-test",
                 model="claude-sonnet-4-20250514",
             )
-            mock_llm_cls.assert_called_once()
-            call_kwargs = mock_llm_cls.call_args.kwargs
+            mock_create.assert_called_once()
+            call_kwargs = mock_create.call_args.kwargs
             assert call_kwargs["max_tokens"] == 1024
 
 
