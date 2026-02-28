@@ -188,6 +188,32 @@ class TestCreateLlmFactory:
         llm = create_llm(settings, model_override="gpt-4o")
         assert llm.model_name == "gpt-4o"
 
+    def test_oauth_token_uses_bearer_header(self) -> None:
+        from src.agent.llm import _build_anthropic_kwargs
+
+        kwargs = _build_anthropic_kwargs(
+            api_key="sk-ant-oat01-test-oauth-token",
+            model="claude-sonnet-4-20250514",
+            temperature=0.0,
+            max_tokens=4096,
+        )
+        assert "default_headers" in kwargs
+        assert kwargs["default_headers"]["Authorization"] == "Bearer sk-ant-oat01-test-oauth-token"
+        # api_key should be a placeholder, not the real token
+        assert kwargs["api_key"].get_secret_value() != "sk-ant-oat01-test-oauth-token"
+
+    def test_regular_api_key_uses_api_key_param(self) -> None:
+        from src.agent.llm import _build_anthropic_kwargs
+
+        kwargs = _build_anthropic_kwargs(
+            api_key="sk-ant-api03-regular-key",
+            model="claude-sonnet-4-20250514",
+            temperature=0.0,
+            max_tokens=4096,
+        )
+        assert "default_headers" not in kwargs
+        assert kwargs["api_key"].get_secret_value() == "sk-ant-api03-regular-key"
+
     def test_model_override_used_for_anthropic(self) -> None:
         from src.agent.llm import create_llm
 
@@ -409,7 +435,7 @@ class TestJudgeAnthropicProvider:
 
     @pytest.mark.asyncio
     async def test_anthropic_provider_creates_chat_anthropic(self) -> None:
-        with patch("src.eval.judge.ChatAnthropic") as mock_llm_cls:
+        with patch("langchain_anthropic.ChatAnthropic") as mock_llm_cls:
             mock_llm = MagicMock()
             mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content='{"passed": true, "explanation": "ok"}'))
             mock_llm_cls.return_value = mock_llm

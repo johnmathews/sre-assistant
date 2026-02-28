@@ -41,8 +41,19 @@ async def _run_all(case_ids: list[str] | None) -> bool:
     print(f"Runbook search: disabled (evals use mocked HTTP, not RAG)", file=sys.stderr)
     print(f"Running {len(cases)} eval case(s)...\n", file=sys.stderr, flush=True)
 
+    # Anthropic has a 30k input tokens/min rate limit — each case uses ~16k tokens
+    # across 2-4 LLM round-trips, so we need to pace requests to avoid 429s.
+    rate_limit_delay = 5.0 if provider == "anthropic" else 0.0
+
     results = []
     for i, case in enumerate(cases, 1):
+        if i > 1 and rate_limit_delay > 0:
+            print(
+                f"  Waiting {rate_limit_delay:.0f}s (rate limit pacing)...",
+                file=sys.stderr,
+                flush=True,
+            )
+            await asyncio.sleep(rate_limit_delay)
         print(f"[{i}/{len(cases)}] Running: {case.id}...", file=sys.stderr, flush=True)
         result = await run_eval_case(
             case,

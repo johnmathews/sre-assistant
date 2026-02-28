@@ -1,7 +1,10 @@
 """Core eval runner — patches settings, mocks HTTP, invokes agent, scores results."""
 
+import asyncio
 import logging
 import sys
+import time
+from collections.abc import Coroutine
 from typing import Any
 from unittest.mock import patch
 
@@ -13,6 +16,61 @@ from src.eval.judge import judge_answer
 from src.eval.models import EvalCase, EvalResult, JudgeScore, ToolScore
 
 logger = logging.getLogger(__name__)
+
+
+async def _with_progress[T](label: str, coro: Coroutine[Any, Any, T]) -> T:
+    """Await a coroutine while printing elapsed seconds to stderr."""
+    task = asyncio.create_task(coro)
+    start = time.monotonic()
+    while not task.done():
+        elapsed = time.monotonic() - start
+        print(f"\r  {label} ({elapsed:.0f}s)...", end="", file=sys.stderr, flush=True)
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
+        except TimeoutError:
+            continue
+        except Exception:
+            break
+    elapsed = time.monotonic() - start
+    print(f"\r  {label} ({elapsed:.0f}s)    ", file=sys.stderr, flush=True)
+    return task.result()
+
+
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = [30, 60, 120]  # seconds to wait before each retry
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Check if an exception is a rate limit (429) error."""
+    msg = str(exc).lower()
+    return "429" in msg or "rate_limit" in msg or "rate limit" in msg
+
+
+async def _invoke_with_retry(
+    agent: Any,
+    inputs: dict[str, Any],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Invoke the agent with retry on rate limit errors."""
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            return await _with_progress(
+                "Agent thinking",
+                agent.ainvoke(inputs, config=config),
+            )
+        except Exception as exc:
+            if _is_rate_limit_error(exc) and attempt < _MAX_RETRIES:
+                wait = _RETRY_BACKOFF[attempt]
+                print(
+                    f"\n  Rate limited — waiting {wait}s before retry ({attempt + 1}/{_MAX_RETRIES})...",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                await asyncio.sleep(wait)
+                continue
+            raise
+    raise RuntimeError("Unreachable")  # pragma: no cover
+
 
 # Every module that imports get_settings needs to be patched so the cached
 # reference is overridden.  Same pattern as tests/conftest.py mock_settings.
@@ -189,16 +247,8 @@ async def run_eval_case(
             p.start()
         runbook_patch.start()
 
-        # Suppress the "Runbook search tool unavailable" warning — we intentionally
-        # disabled it above, so the warning is expected noise during evals.
-        agent_logger = logging.getLogger("src.agent.agent")
-        prev_level = agent_logger.level
-        agent_logger.setLevel(logging.ERROR)
-
         # Import agent builder inside the patch context so it sees fake settings
         from src.agent.agent import build_agent
-
-        agent_logger.setLevel(prev_level)
 
         # Set up respx mocks
         with respx.mock(assert_all_called=False) as router:
@@ -224,13 +274,20 @@ async def run_eval_case(
             # Catch-all: unmocked infra routes return 503
             router.route().mock(return_value=httpx.Response(503, json={"error": "unmocked"}))
 
+            # Suppress the "Runbook search tool unavailable" warning — we intentionally
+            # disabled it via sys.modules patch, so the warning is expected noise.
+            agent_logger = logging.getLogger("src.agent.agent")
+            prev_level = agent_logger.level
+            agent_logger.setLevel(logging.ERROR)
             agent = build_agent()
+            agent_logger.setLevel(prev_level)
 
             from langchain_core.messages import HumanMessage
 
-            result: dict[str, Any] = await agent.ainvoke(
+            result: dict[str, Any] = await _invoke_with_retry(
+                agent,
                 {"messages": [HumanMessage(content=case.question)]},
-                config={"configurable": {"thread_id": f"eval-{case.id}"}},
+                {"configurable": {"thread_id": f"eval-{case.id}"}},
             )
 
         messages: list[Any] = result.get("messages", [])
@@ -247,15 +304,18 @@ async def run_eval_case(
     judge_score: JudgeScore
     try:
         judge_model = anthropic_model if llm_provider == "anthropic" else openai_model
-        judge_score = await judge_answer(
-            question=case.question,
-            answer=answer,
-            rubric=case.rubric,
-            openai_api_key=openai_api_key,
-            model=judge_model,
-            base_url=openai_base_url or None,
-            llm_provider=llm_provider,
-            anthropic_api_key=anthropic_api_key,
+        judge_score = await _with_progress(
+            "Judge scoring",
+            judge_answer(
+                question=case.question,
+                answer=answer,
+                rubric=case.rubric,
+                openai_api_key=openai_api_key,
+                model=judge_model,
+                base_url=openai_base_url or None,
+                llm_provider=llm_provider,
+                anthropic_api_key=anthropic_api_key,
+            ),
         )
     except Exception as exc:
         logger.warning("Judge scoring failed for %s: %s", case.id, exc)
