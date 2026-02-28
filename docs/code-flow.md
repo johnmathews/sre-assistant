@@ -223,13 +223,17 @@ because `llm_output` format varies across LLM providers and can change between l
 
 The handler matches `model_name` from `llm_output` against a prefix-based pricing table:
 
-| Model prefix  | Prompt (per 1M tokens) | Completion (per 1M tokens) |
-| ------------- | ---------------------- | -------------------------- |
-| `gpt-4o-mini` | $0.15                  | $0.60                      |
-| `gpt-4o`      | $2.50                  | $10.00                     |
-| `gpt-4-turbo` | $10.00                 | $30.00                     |
+| Model prefix      | Prompt (per 1M tokens) | Completion (per 1M tokens) |
+| ----------------- | ---------------------- | -------------------------- |
+| `gpt-4o-mini`     | $0.15                  | $0.60                      |
+| `gpt-4o`          | $2.50                  | $10.00                     |
+| `gpt-4-turbo`     | $10.00                 | $30.00                     |
+| `claude-sonnet-4` | $3.00                  | $15.00                     |
+| `claude-opus-4`   | $15.00                 | $75.00                     |
+| `claude-haiku-4`  | $0.80                  | $4.00                      |
 
-Unknown models fall back to `gpt-4o` pricing (the conservative default). The total cost counter is monotonically
+Unknown models fall back to `gpt-4o` pricing (the conservative default). Claude pricing is informational — when using an
+Anthropic Max subscription via `claude-max-api-proxy`, the actual cost is the flat subscription rate. The total cost counter is monotonically
 increasing — Prometheus `rate()` computes cost per time window for the dashboard.
 
 ### Exposition
@@ -336,3 +340,33 @@ to extract `AIMessage.tool_calls` for deterministic tool scoring. It reimplement
 
 HTTP-level mocking via respx tests the full tool implementation — URL construction, headers, query parameters, response
 parsing, error formatting. Function-level mocking would only test whether the LLM picks the right tool name.
+
+### Eval cost estimation
+
+Each eval case makes **multiple real LLM API calls** — the agent runs a ReAct loop (2–4 round-trips per case), and then
+the judge makes one additional call. Every round-trip resends the full accumulated context, so the dominant cost driver
+is the **system prompt (~6,400 tokens) and tool definitions (~1,500+ tokens)** included in every call.
+
+**Token breakdown per eval case (gpt-4o-mini):**
+
+| Component | Prompt tokens | Completion tokens |
+| --------- | ------------- | ----------------- |
+| Agent round 1 (decide tool) | ~7,930 (system + tools + question) | ~50 (tool call) |
+| Agent round 2 (answer or next tool) | ~8,180 (+ prev completion + tool result) | ~200 (answer) |
+| Additional rounds (multi-tool cases) | +200 per round | ~50-200 per round |
+| Judge call | ~500 (question + answer + rubric) | ~50 (JSON verdict) |
+
+**Cost per case (gpt-4o-mini at $0.15/$0.60 per 1M prompt/completion):**
+
+| Case type | Prompt tokens | Completion tokens | Cost |
+| --------- | ------------- | ----------------- | ---- |
+| Simple (1 tool, 2 LLM calls) | ~16,600 | ~300 | ~$0.003 |
+| Complex (3 tools, 4 LLM calls) | ~33,000 | ~450 | ~$0.005 |
+
+**Full suite (28 cases, mixed complexity): ~$0.10–0.15 per run.**
+
+Key factors that make eval expensive relative to naive token estimates:
+- System prompt (25KB / ~6,400 tokens) is resent on **every** LLM round-trip
+- Tool schemas (~300 tokens each × 5–9 tools) are resent on every round-trip
+- Multi-tool cases compound: each round adds all prior messages to the context
+- The judge call is cheap (~$0.0001) but there are 28 of them

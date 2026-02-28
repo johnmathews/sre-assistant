@@ -39,7 +39,12 @@ _SERVICE_URL_ATTRS: dict[str, str] = {
 }
 
 
-def _build_fake_settings(case: EvalCase, openai_api_key: str, openai_model: str) -> object:
+def _build_fake_settings(
+    case: EvalCase,
+    openai_api_key: str,
+    openai_model: str,
+    openai_base_url: str = "",
+) -> object:
     """Build a FakeSettings object with real OpenAI creds and fake infra URLs.
 
     Only services listed in case.required_services get non-empty URLs;
@@ -48,6 +53,7 @@ def _build_fake_settings(case: EvalCase, openai_api_key: str, openai_model: str)
     attrs: dict[str, Any] = {
         "openai_api_key": openai_api_key,
         "openai_model": openai_model,
+        "openai_base_url": openai_base_url,
         "extra_docs_dirs": "",
         # Always-required services
         "prometheus_url": "http://prometheus.test:9090",
@@ -130,18 +136,24 @@ def _score_tools(case: EvalCase, called_tools: list[str]) -> ToolScore:
     )
 
 
-async def run_eval_case(case: EvalCase, openai_api_key: str, openai_model: str) -> EvalResult:
+async def run_eval_case(
+    case: EvalCase,
+    openai_api_key: str,
+    openai_model: str,
+    openai_base_url: str = "",
+) -> EvalResult:
     """Run a single eval case: mock HTTP, invoke agent, score results.
 
     Args:
         case: The eval case definition.
         openai_api_key: Real OpenAI API key (from .env).
         openai_model: OpenAI model name for the agent.
+        openai_base_url: Optional OpenAI-compatible proxy URL.
 
     Returns:
         EvalResult with tool score, judge score, and agent answer.
     """
-    fake_settings = _build_fake_settings(case, openai_api_key, openai_model)
+    fake_settings = _build_fake_settings(case, openai_api_key, openai_model, openai_base_url)
 
     # Stack all settings patches
     patches = [patch(site, return_value=fake_settings) for site in _SETTINGS_PATCH_SITES]
@@ -174,6 +186,12 @@ async def run_eval_case(case: EvalCase, openai_api_key: str, openai_model: str) 
                 method_fn(url=mock_def.url).mock(return_value=response)
             # Let real OpenAI traffic pass through (evals use a real LLM)
             router.route(host="api.openai.com").pass_through()
+            if openai_base_url:
+                from urllib.parse import urlparse
+
+                proxy_host = urlparse(openai_base_url).hostname
+                if proxy_host:
+                    router.route(host=proxy_host).pass_through()
             # Catch-all: unmocked infra routes return 503
             router.route().mock(return_value=httpx.Response(503, json={"error": "unmocked"}))
 
@@ -204,6 +222,7 @@ async def run_eval_case(case: EvalCase, openai_api_key: str, openai_model: str) 
             answer=answer,
             rubric=case.rubric,
             openai_api_key=openai_api_key,
+            base_url=openai_base_url or None,
         )
     except Exception as exc:
         logger.warning("Judge scoring failed for %s: %s", case.id, exc)

@@ -243,6 +243,7 @@ def build_agent(
         model=resolved_model,
         temperature=temperature,
         api_key=SecretStr(settings.openai_api_key),
+        base_url=settings.openai_base_url or None,
     )
 
     tools = _get_tools()

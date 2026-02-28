@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     openai_api_key: str
     openai_model: str = "gpt-4o-mini"
+    openai_base_url: str = ""  # Optional OpenAI-compatible proxy URL
     prometheus_url: str
     grafana_url: str
     grafana_service_account_token: str

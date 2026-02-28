@@ -117,5 +117,8 @@ COST_PER_TOKEN: dict[str, dict[str, float]] = {
     "gpt-4o-mini": {"prompt": 0.15 / 1_000_000, "completion": 0.60 / 1_000_000},
     "gpt-4o": {"prompt": 2.50 / 1_000_000, "completion": 10.00 / 1_000_000},
     "gpt-4-turbo": {"prompt": 10.00 / 1_000_000, "completion": 30.00 / 1_000_000},
+    "claude-sonnet-4": {"prompt": 3.00 / 1_000_000, "completion": 15.00 / 1_000_000},
+    "claude-opus-4": {"prompt": 15.00 / 1_000_000, "completion": 75.00 / 1_000_000},
+    "claude-haiku-4": {"prompt": 0.80 / 1_000_000, "completion": 4.00 / 1_000_000},
 }
 DEFAULT_COST_PER_TOKEN: dict[str, float] = {"prompt": 2.50 / 1_000_000, "completion": 10.00 / 1_000_000}

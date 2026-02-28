@@ -43,6 +43,7 @@ async def judge_answer(
     rubric: str,
     openai_api_key: str,
     model: str = "gpt-4o-mini",
+    base_url: str | None = None,
 ) -> JudgeScore:
     """Score an agent answer against a rubric using LLM-as-judge.
 
@@ -52,6 +53,7 @@ async def judge_answer(
         rubric: Quality criteria the answer should meet.
         openai_api_key: OpenAI API key for the grading LLM.
         model: Model to use for grading (default: gpt-4o-mini).
+        base_url: Optional OpenAI-compatible proxy URL.
 
     Returns:
         JudgeScore with passed/failed and explanation.
@@ -60,6 +62,7 @@ async def judge_answer(
         model=model,
         temperature=0.0,
         api_key=SecretStr(openai_api_key),
+        base_url=base_url,
     )
 
     prompt = _JUDGE_PROMPT.format(question=question, answer=answer, rubric=rubric)

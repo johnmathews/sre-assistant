@@ -643,6 +643,7 @@ async def _generate_narrative(
             model=settings.openai_model,
             api_key=SecretStr(settings.openai_api_key),
             temperature=0.3,
+            base_url=settings.openai_base_url or None,
         )
         prompt = (
             "You are an SRE assistant writing a weekly reliability report summary. "
