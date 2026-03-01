@@ -95,6 +95,12 @@ The project is built incrementally. Each phase produces a working, demonstrable 
 5. **Evaluation Framework** — Automated test cases scoring tool selection, retrieval relevance, answer quality
 6. **Weekly Reliability Report** — Scheduled summarization of alerts, changes, SLO status
 
+## Eval Quality
+
+When debugging eval failures or writing new eval cases, see `docs/eval-quality.md`. It documents known judge
+limitations, common mock gaps, rubric writing guidelines, and a history of past improvements. Refer to it before
+modifying eval cases.
+
 ## Source Layout
 
 - `src/agent/` — LangChain agent setup, tools (prometheus, grafana_alerts, proxmox, pbs, loki), retrieval (embeddings,
