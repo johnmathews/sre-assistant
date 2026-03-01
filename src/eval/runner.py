@@ -247,8 +247,8 @@ def _summarize_available_data(case: EvalCase) -> str:
             import json
 
             body_str = json.dumps(body, indent=None, default=str)
-            if len(body_str) > 500:
-                body_str = body_str[:500] + "..."
+            if len(body_str) > 2000:
+                body_str = body_str[:2000] + "..."
             parts.append(f"- {mock.method} {mock.url}: {body_str}")
 
     if case.memory_seed:

@@ -28,7 +28,7 @@ mocks:
       data:
         pve_guest_info:
           - type: "gauge"
-            help: "Guest information"
+            help: "Running Proxmox VE guest count (VMs and LXCs currently online)"
             unit: ""
 
 rubric: |

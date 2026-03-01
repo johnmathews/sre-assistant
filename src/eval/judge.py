@@ -99,11 +99,32 @@ async def judge_answer(
 
     try:
         parsed: dict[str, object] = json.loads(stripped)
+    except json.JSONDecodeError:
+        # Judge may output multiple JSON objects (e.g. self-correction).
+        # Extract the last complete {...} block as the final answer.
+        blocks = re.findall(r"\{[^{}]*\}", stripped)
+        if blocks:
+            try:
+                parsed = json.loads(blocks[-1])
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse judge response (no valid JSON block)")
+                return JudgeScore(
+                    passed=False,
+                    explanation=f"Failed to parse judge response: {raw_text}",
+                )
+        else:
+            logger.warning("Failed to parse judge response (no JSON blocks found)")
+            return JudgeScore(
+                passed=False,
+                explanation=f"Failed to parse judge response: {raw_text}",
+            )
+
+    try:
         return JudgeScore(
             passed=bool(parsed.get("passed", False)),
             explanation=str(parsed.get("explanation", "No explanation provided")),
         )
-    except (json.JSONDecodeError, KeyError) as exc:
+    except KeyError as exc:
         logger.warning("Failed to parse judge response: %s", exc)
         return JudgeScore(
             passed=False,

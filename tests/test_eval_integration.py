@@ -86,6 +86,28 @@ class TestJudgeAnswer:
         assert not score.passed
         assert "Failed to parse" in score.explanation
 
+    async def test_judge_extracts_last_json_from_multi_object_response(self) -> None:
+        """Judge self-corrects with two JSON objects — use the last one."""
+        multi_json = (
+            '{"passed": false, "explanation": "Wait, let me reconsider"}\n\n'
+            '{"passed": true, "explanation": "All criteria met on review"}'
+        )
+        mock_response = AIMessage(content=multi_json)
+        with patch("src.eval.judge.ChatOpenAI") as mock_llm_cls:
+            mock_instance = AsyncMock()
+            mock_instance.ainvoke.return_value = mock_response
+            mock_llm_cls.return_value = mock_instance
+
+            score = await judge_answer(
+                question="Test?",
+                answer="Answer",
+                rubric="Rubric",
+                openai_api_key="sk-fake",
+            )
+
+        assert score.passed
+        assert "review" in score.explanation.lower()
+
 
 @pytest.mark.integration
 class TestRunnerSettingsPatching:

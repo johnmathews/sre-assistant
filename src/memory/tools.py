@@ -53,7 +53,7 @@ class GetPreviousReportInput(BaseModel):
 
 
 class CheckBaselineInput(BaseModel):
-    metric_name: str = Field(..., description="Prometheus metric name (e.g. 'node_cpu_seconds_total')")
+    metric_name: str = Field(..., description="Prometheus metric name (e.g. 'node_cpu_usage_ratio')")
     current_value: float = Field(..., description="Current metric value to compare against baseline")
     labels: str | None = Field(None, description='JSON label set to match (e.g. \'{"hostname": "media"}\')')
 
