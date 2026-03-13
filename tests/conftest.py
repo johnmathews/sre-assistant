@@ -105,6 +105,7 @@ def mock_settings() -> Generator[Any]:
         patch("src.config.get_settings", return_value=fake_settings),
         patch("src.agent.tools.prometheus.get_settings", return_value=fake_settings),
         patch("src.agent.tools.grafana_alerts.get_settings", return_value=fake_settings),
+        patch("src.agent.tools.grafana_dashboards.get_settings", return_value=fake_settings),
         patch("src.agent.tools.proxmox.get_settings", return_value=fake_settings),
         patch("src.agent.tools.pbs.get_settings", return_value=fake_settings),
         patch("src.agent.tools.loki.get_settings", return_value=fake_settings),

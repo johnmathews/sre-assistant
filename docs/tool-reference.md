@@ -1,6 +1,6 @@
 # Tool Reference
 
-The agent has up to 26 tools across 9 categories. Tools are conditionally registered based on configuration.
+The agent has up to 28 tools across 10 categories. Tools are conditionally registered based on configuration.
 
 ## Conditional Registration
 
@@ -11,6 +11,7 @@ is skipped entirely (no failed connections, no error logs).
 | ---------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------- |
 | Prometheus       | `prometheus_search_metrics`, `prometheus_instant_query`, `prometheus_range_query`                          | `PROMETHEUS_URL`            | Yes (required)            |
 | Grafana Alerting | `grafana_get_alerts`, `grafana_get_alert_rules`                                                            | `GRAFANA_URL`               | Yes (required)            |
+| Grafana Dashboards | `grafana_get_dashboard`, `grafana_search_dashboards`                                                     | `GRAFANA_URL`               | Yes (required)            |
 | Loki             | `loki_query_logs`, `loki_metric_query`, `loki_list_label_values`, `loki_correlate_changes`                 | `LOKI_URL`                  | No                        |
 | Proxmox VE       | `proxmox_list_guests`, `proxmox_get_guest_config`, `proxmox_node_status`, `proxmox_list_tasks`             | `PROXMOX_URL`               | No                        |
 | TrueNAS SCALE    | `truenas_pool_status`, `truenas_list_shares`, `truenas_snapshots`, `truenas_system_status`, `truenas_apps` | `TRUENAS_URL`               | No                        |
@@ -67,6 +68,25 @@ Fetch alert rule definitions from Grafana.
 - **Input:** none
 - **Example questions:** "What alerts are configured?", "What conditions trigger the high CPU alert?"
 - **Returns:** Rule name, UID, folder, group, severity, summary
+
+## Grafana Dashboards (always enabled)
+
+### grafana_get_dashboard
+
+Fetch a Grafana dashboard by UID or name, optionally extracting a single panel.
+
+- **Input:** `dashboard` (string — UID or name), `panel` (optional string — panel title, case-insensitive partial match)
+- **Example questions:** "What panels does the Home Server dashboard have?", "What query does the CPU panel use?", "Show me the thresholds on the disk usage panel", "Why isn't the hostname filter working on this panel?"
+- **Returns:** Full dashboard summary (panels, template vars, datasources, annotations, links) or single panel details (queries, thresholds, units, overrides, transformations)
+- **Name lookup:** When `dashboard` contains spaces or doesn't look like a UID, the tool searches by name first via `/api/search`, then fetches the top result. If a UID-style string returns 404, it falls back to search.
+
+### grafana_search_dashboards
+
+Search for Grafana dashboards by name.
+
+- **Input:** `query` (string)
+- **Example questions:** "What dashboards exist?", "Find the network dashboard"
+- **Returns:** Matching dashboards with title, UID, folder, URL, tags
 
 ## Loki (enabled when `LOKI_URL` is set)
 

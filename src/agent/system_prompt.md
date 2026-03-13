@@ -16,6 +16,8 @@ time range relative to the current time above.
 - `prometheus_range_query` — metric trends over a time range
 - `grafana_get_alerts` — active/firing alerts and their state
 - `grafana_get_alert_rules` — configured alert rule definitions
+- `grafana_get_dashboard` — fetch dashboard by UID or name, inspect panel queries, thresholds, template variables, overrides, and transformations. Optionally extract a single panel by title.
+- `grafana_search_dashboards` — search for dashboards by name to discover UIDs
 
 **For Proxmox VE** (VM/container management, node health):
 - `proxmox_list_guests` — list all VMs and containers with status and resource usage

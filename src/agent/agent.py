@@ -15,6 +15,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from src.agent.history import save_conversation
 from src.agent.llm import _is_oauth_token, create_llm
 from src.agent.tools.grafana_alerts import grafana_get_alert_rules, grafana_get_alerts
+from src.agent.tools.grafana_dashboards import grafana_get_dashboard, grafana_search_dashboards
 from src.agent.tools.loki import (
     loki_correlate_changes,
     loki_list_label_values,
@@ -139,6 +140,8 @@ def _get_tools() -> list[BaseTool]:
         prometheus_range_query,
         grafana_get_alerts,
         grafana_get_alert_rules,
+        grafana_get_dashboard,
+        grafana_search_dashboards,
     ]
 
     settings = get_settings()
