@@ -9,7 +9,20 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
+from src.agent import oauth_refresh
 from src.agent.oauth_refresh import ensure_valid_token, get_token_health
+
+
+@pytest.fixture(autouse=True)
+def _reset_rejected_token() -> "object":
+    """Clear the module-level rejected-refresh-token state around each test.
+
+    The rejection flag is process-global (single-worker deployment), so without
+    this reset state would leak between tests depending on execution order.
+    """
+    oauth_refresh._rejected_refresh_token_hash = None
+    yield
+    oauth_refresh._rejected_refresh_token_hash = None
 
 
 def _make_creds(expires_at: int, refresh_token: str = "sk-ant-ort01-fake") -> dict[str, object]:
@@ -314,3 +327,98 @@ class TestGetTokenHealth:
         with patch("src.agent.oauth_refresh._credentials_path", return_value=creds_path):
             status, _ = get_token_health()
         assert status == "unhealthy"
+
+
+# ---------------------------------------------------------------------------
+# Rejected refresh token: a refresh token can be *present but rejected* by the
+# server (HTTP 400 invalid_grant). That is NOT self-healing — a human must
+# re-authenticate — so health must report "unhealthy" while that token is on disk.
+# ---------------------------------------------------------------------------
+
+
+async def _attempt_refresh(creds_path: Path, *, status_code: int, body: dict[str, object]) -> None:
+    """Run ensure_valid_token() against a mocked token endpoint response."""
+    mock_response = type(
+        "R",
+        (),
+        {
+            "status_code": status_code,
+            "json": lambda self: body,
+            "text": json.dumps(body),
+        },
+    )()
+    mock_cm, _ = _mock_async_client(mock_response)
+    with (
+        patch("src.agent.oauth_refresh._credentials_path", return_value=creds_path),
+        patch("src.agent.oauth_refresh.httpx.AsyncClient", return_value=mock_cm),
+    ):
+        await ensure_valid_token()
+
+
+class TestRejectedRefreshToken:
+    @pytest.mark.asyncio
+    async def test_unhealthy_after_invalid_grant_for_same_token(self, tmp_path: Path) -> None:
+        creds_path = tmp_path / ".credentials.json"
+        past_ms = int((time.time() - 60) * 1000)
+        creds_path.write_text(json.dumps(_make_creds(past_ms, refresh_token="sk-ant-ort01-dead")))
+
+        await _attempt_refresh(creds_path, status_code=400, body={"error": "invalid_grant"})
+
+        with patch("src.agent.oauth_refresh._credentials_path", return_value=creds_path):
+            status, detail = get_token_health()
+        assert status == "unhealthy"
+        assert detail is not None
+        assert "claude login" in detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_self_clears_when_token_replaced_by_reauth(self, tmp_path: Path) -> None:
+        creds_path = tmp_path / ".credentials.json"
+        past_ms = int((time.time() - 60) * 1000)
+        creds_path.write_text(json.dumps(_make_creds(past_ms, refresh_token="sk-ant-ort01-dead")))
+
+        await _attempt_refresh(creds_path, status_code=400, body={"error": "invalid_grant"})
+
+        # Operator re-authenticates: a brand-new credentials file lands on disk.
+        far_future_ms = int((time.time() + 3600) * 1000)
+        creds_path.write_text(json.dumps(_make_creds(far_future_ms, refresh_token="sk-ant-ort01-fresh")))
+
+        with patch("src.agent.oauth_refresh._credentials_path", return_value=creds_path):
+            status, _ = get_token_health()
+        assert status == "healthy"
+
+    @pytest.mark.asyncio
+    async def test_transient_server_error_does_not_mark_unhealthy(self, tmp_path: Path) -> None:
+        creds_path = tmp_path / ".credentials.json"
+        past_ms = int((time.time() - 60) * 1000)
+        creds_path.write_text(json.dumps(_make_creds(past_ms)))
+
+        await _attempt_refresh(creds_path, status_code=503, body={"error": "service_unavailable"})
+
+        with patch("src.agent.oauth_refresh._credentials_path", return_value=creds_path):
+            status, _ = get_token_health()
+        assert status == "healthy"
+
+    @pytest.mark.asyncio
+    async def test_successful_refresh_clears_prior_rejection(self, tmp_path: Path) -> None:
+        creds_path = tmp_path / ".credentials.json"
+        past_ms = int((time.time() - 60) * 1000)
+        creds_path.write_text(json.dumps(_make_creds(past_ms, refresh_token="sk-ant-ort01-dead")))
+
+        await _attempt_refresh(creds_path, status_code=400, body={"error": "invalid_grant"})
+        assert oauth_refresh._rejected_refresh_token_hash is not None
+
+        # A later refresh of the same (still-expired) token succeeds.
+        await _attempt_refresh(
+            creds_path,
+            status_code=200,
+            body={
+                "access_token": "sk-ant-oat01-new",
+                "refresh_token": "sk-ant-ort01-new",
+                "expires_in": 28800,
+            },
+        )
+
+        assert oauth_refresh._rejected_refresh_token_hash is None
+        with patch("src.agent.oauth_refresh._credentials_path", return_value=creds_path):
+            status, _ = get_token_health()
+        assert status == "healthy"

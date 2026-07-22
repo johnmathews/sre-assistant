@@ -15,6 +15,7 @@ Flow:
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -31,6 +32,19 @@ _REFRESH_BUFFER_MS = 5 * 60 * 1000  # refresh 5 minutes before expiry
 
 # Prevents concurrent refresh attempts from racing on single-use refresh tokens.
 _refresh_lock = asyncio.Lock()
+
+# Hash of a refresh token the server rejected with ``invalid_grant`` (i.e. the
+# token is permanently dead and a human must re-authenticate). Stored as a hash
+# so we never hold the raw secret longer than needed and never risk logging it.
+# Process-global is safe: the production Dockerfile runs a single uvicorn worker.
+# ``get_token_health`` compares this against the on-disk token so the flag
+# self-clears the moment an operator re-authenticates with a fresh token.
+_rejected_refresh_token_hash: str | None = None
+
+
+def _hash_token(token: str) -> str:
+    """Return a stable, non-reversible fingerprint of a refresh token."""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def _credentials_path() -> Path:
@@ -102,12 +116,21 @@ async def _refresh_if_needed() -> None:
     await _do_refresh(creds_path, oauth, refresh_token)
 
 
+def _is_invalid_grant(resp: httpx.Response) -> bool:
+    """Return True if an OAuth error response indicates a dead refresh token."""
+    try:
+        return bool(resp.json().get("error") == "invalid_grant")
+    except Exception:
+        return "invalid_grant" in resp.text
+
+
 async def _do_refresh(
     creds_path: Path,
     oauth: dict[str, object],
     refresh_token: str,
 ) -> None:
     """Call the OAuth token endpoint and save the new credentials."""
+    global _rejected_refresh_token_hash
     from src.observability.metrics import OAUTH_REFRESH_TOTAL
 
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -124,6 +147,13 @@ async def _do_refresh(
 
     if resp.status_code != 200:
         OAUTH_REFRESH_TOTAL.labels(status="error").inc()
+        # HTTP 400 invalid_grant means the refresh token itself is dead — no
+        # amount of retrying will fix it, a human must re-authenticate. Flag it
+        # so get_token_health() reports unhealthy instead of "self-healing".
+        # Transient errors (5xx, network) are left unflagged: they recover on
+        # the next call.
+        if resp.status_code == 400 and _is_invalid_grant(resp):
+            _rejected_refresh_token_hash = _hash_token(refresh_token)
         logger.warning(
             "OAuth refresh returned HTTP %d: %s",
             resp.status_code,
@@ -154,6 +184,10 @@ async def _do_refresh(
     tmp_path = creds_path.with_suffix(".tmp")
     await asyncio.to_thread(tmp_path.write_text, json.dumps(new_creds))
     await asyncio.to_thread(tmp_path.rename, creds_path)
+
+    # A successful refresh clears any prior rejection (e.g. the token was
+    # rotated back into a valid state).
+    _rejected_refresh_token_hash = None
 
     OAUTH_REFRESH_TOTAL.labels(status="success").inc()
     _update_token_metrics(float(new_expiry_ms))
@@ -200,6 +234,16 @@ def get_token_health() -> tuple[str, str | None]:
     has_refresh = isinstance(refresh_token, str) and len(refresh_token) > 0
 
     if has_refresh:
+        # A refresh token that the server has already rejected is NOT self-healing,
+        # even though it is present on disk. Surface it loudly so a human acts.
+        # We compare token identity so re-authentication clears this automatically.
+        assert isinstance(refresh_token, str)  # narrowed by has_refresh
+        if _rejected_refresh_token_hash is not None and _hash_token(refresh_token) == _rejected_refresh_token_hash:
+            return (
+                "unhealthy",
+                "refresh token rejected by Anthropic (invalid_grant) — "
+                "re-authenticate on the host with `claude login` and restart the container",
+            )
         if remaining_ms < 0:
             return ("healthy", f"access token expired {-remaining_hours:.1f}h ago, will refresh on next call")
         return ("healthy", f"access token valid ({remaining_hours:.1f}h), refresh token present")
