@@ -56,6 +56,20 @@ yields structured dicts as events:
 The web UI consumes these events via a `fetch()` + `ReadableStream` parser, rendering a live checklist of tool calls
 with progress indicators before displaying the final answer.
 
+### Structured error events
+
+On failure, `stream_sdk_agent` calls `agent_errors.classify_agent_failure`,
+which maps the exception to a stable `reason` code using
+`oauth_refresh.get_token_health()`:
+
+- `llm_auth_failed` — the OAuth credential was rejected (`invalid_grant`) or is
+  otherwise unhealthy; an operator must re-authenticate on the host and restart.
+- `agent_no_answer` — generic fallback; retrying is usually safe.
+
+The emitted SSE `error` event carries `content` (operator-facing message),
+`reason` (machine code), and `detail` (raw cause). `sre_assistant_agent_errors_total{reason}`
+counts each; alert on `reason="llm_auth_failed"`.
+
 ### 3. Tool Selection
 
 LangGraph's `create_agent` compiles the LLM + tools into a graph. The LLM:
