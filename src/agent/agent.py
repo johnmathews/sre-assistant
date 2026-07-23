@@ -544,6 +544,8 @@ async def stream_agent(
       - content: human-readable text
       - tool_name (optional): raw tool name for tool events
       - session_id (only on "answer"): the effective session ID
+      - reason (only on "error"): machine-readable failure code
+      - detail (only on "error"): raw underlying cause, for a details view
     """
     # --- Anthropic / SDK path ---
     if agent.provider == "anthropic":

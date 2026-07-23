@@ -9,10 +9,13 @@ Classification is best-effort and MUST NOT raise — it runs inside the failure
 path, so any error here falls back to the generic bucket.
 """
 
+import logging
 from dataclasses import dataclass
 from enum import StrEnum
 
 from src.agent.oauth_refresh import get_token_health
+
+logger = logging.getLogger(__name__)
 
 _AUTH_FAILED_MESSAGE = (
     "The agent can't authenticate to the LLM provider — its credential was "
@@ -49,8 +52,10 @@ def classify_agent_failure(exc: Exception) -> AgentError:
                 detail=detail or "OAuth credential unhealthy",
             )
     except Exception:
-        # Classification must never mask the original failure.
-        pass
+        # Classification must never mask the original failure, but a broken
+        # health probe would misclassify auth failures as generic — leave a
+        # debug trail without escalating (never raise from here).
+        logger.debug("token-health probe failed during classification", exc_info=True)
     return AgentError(
         reason=AgentErrorReason.AGENT_NO_ANSWER,
         message=_NO_ANSWER_MESSAGE,
