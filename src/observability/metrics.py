@@ -127,6 +127,12 @@ OAUTH_REFRESH_TOTAL = Counter(
     labelnames=["status"],
 )
 
+AGENT_ERRORS_TOTAL = Counter(
+    "sre_assistant_agent_errors_total",
+    "Total classified agent failures by reason",
+    labelnames=["reason"],
+)
+
 # ---------------------------------------------------------------------------
 # Cost pricing (USD per token) — GPT-4o-mini as default
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ from claude_agent_sdk.types import (
     ToolUseBlock,
 )
 
+from src.agent.agent_errors import classify_agent_failure
 from src.agent.history import (
     format_history_as_prompt,
     load_turns,
@@ -30,6 +31,7 @@ from src.agent.history import (
 )
 from src.agent.mcp_tools import build_mcp_server
 from src.config import Settings, get_settings
+from src.observability.metrics import AGENT_ERRORS_TOTAL
 from src.observability.sdk_metrics import extract_tool_names, record_sdk_metrics
 
 logger = logging.getLogger(__name__)
@@ -406,6 +408,8 @@ async def stream_sdk_agent(
       - content: human-readable text
       - tool_name (on "tool_start" / "tool_end"): short tool name
       - session_id (only on "answer"): the session ID
+      - reason (only on "error"): machine-readable failure code
+      - detail (only on "error"): raw underlying cause, for a details view
     """
     from src.agent.oauth_refresh import ensure_valid_token
 
@@ -473,7 +477,14 @@ async def stream_sdk_agent(
                 result_msg = msg
     except Exception as exc:
         logger.exception("SDK streaming failed")
-        yield {"type": "error", "content": f"Agent error: {exc}"}
+        err = classify_agent_failure(exc)
+        AGENT_ERRORS_TOTAL.labels(reason=err.reason.value).inc()
+        yield {
+            "type": "error",
+            "content": err.message,
+            "reason": err.reason.value,
+            "detail": err.detail,
+        }
         return
 
     if pending_tools:
